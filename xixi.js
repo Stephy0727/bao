@@ -588,28 +588,42 @@
         });
     }
 
+// ▼▼▼ 请用这【一整块】全新的代码，替换掉您 xixi.js 中旧的 [第四部分] ▼▼▼
+
+    // -------------------------------------------------
+    // [第四部分] 全局入口点与初始化 (V2.3 - 防冲突终极版)
+    // -------------------------------------------------
+    
+    /**
+     * 主应用的入口函数，用于启动购物模块 (这个保持不变)
+     */
     async function openShoppingModule() {
         shoppingModule_showScreen('taobao-screen');
         await shoppingModule_renderTaobaoProducts();
-        await shoppingModule_renderBalanceDetails();
+        await shoppingModule_renderBalanceDetails(); // 使用了修复后的函数名
         shoppingModule_updateCartBadge();
     }
-    
+
+    /**
+     * 【核心修改】模块初始化函数，现在它等待被主应用调用
+     */
     function shoppingModule_init() {
         console.log('📦 购物模块 (xixi.js) 正在初始化...');
         shoppingModule_injectStyles();
         shoppingModule_injectHTML();
-        setTimeout(() => {
-            if (window.showCustomConfirm && window.db) {
-                shoppingModule_bindEvents();
-                console.log('✅ 购物模块初始化成功！');
-            } else {
-                console.error('购物模块初始化失败：缺少主应用依赖 (showCustomConfirm 或 db)。');
-            }
-        }, 200); // 稍微增加延迟，确保主应用完全加载
+        
+        // 我们不再需要 setTimeout 和 if 判断，因为主应用会确保依赖已就绪
+        shoppingModule_bindEvents();
+        console.log('✅ 购物模块初始化成功！');
     }
     
+    // 【核心修改】将 openShoppingModule 和 新的初始化函数 shoppingModule_init 一起暴露出去
     window.openShoppingModule = openShoppingModule;
-    shoppingModule_init();
+    window.initShoppingModule = shoppingModule_init; // <-- 新增这一行，这是给主应用的“唤醒钥匙”
+
+    // 【核心修改】移除末尾的自调用 init()，让模块变为被动加载
+    // init();  <-- 确保这一行已被删除或注释掉
 
 })(window);
+
+// ▲▲▲ 替换结束 ▲▲▲
