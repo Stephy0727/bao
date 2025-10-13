@@ -1,5 +1,5 @@
 // =================================================================
-// shopping.js (xixi.js) - V2.0 仿桃宝
+// shopping.js (xixi.js) - V2.0 仿桃宝UI 最终整合版
 // =================================================================
 // 作者: 专业AI编程大师
 // 描述: 本文件已集成兔k文件中的桃宝UI与功能，并保持了独立模块化。
@@ -238,7 +238,7 @@
     let currentEditingProductId = null;
     let logisticsUpdateTimers = [];
     
-    // --- 核心功能函数 ---
+    // --- 核心功能函数 ---//
     
     function showShoppingScreen(screenId) {
         const moduleContainer = document.getElementById('shopping-module');
@@ -540,6 +540,82 @@
     logisticsUpdateTimers = [];
 
     // --- 核心功能函数 ---
+
+    /**
+ * 【全新】核心函数：更新用户余额并记录一笔交易
+ * @param {number} amount - 交易金额 (正数为收入, 负数为支出)
+ * @param {string} description - 交易描述 (例如: "转账给 XX", "收到 XX 的红包")
+ */
+async function updateUserBalanceAndLogTransaction(amount, description) {
+    // 安全检查：如果主应用的状态或全局设置不存在，则不执行
+    if (!window.state || !window.state.globalSettings || isNaN(amount)) {
+        console.warn("updateUserBalanceAndLogTransaction 调用失败：缺少主应用状态或有效的amount。");
+        return;
+    }
+
+    // 确保余额是数字
+    window.state.globalSettings.userBalance = (window.state.globalSettings.userBalance || 0) + amount;
+
+    const newTransaction = {
+        type: amount > 0 ? 'income' : 'expense',
+        amount: Math.abs(amount),
+        description: description,
+        timestamp: Date.now()
+    };
+
+    // 使用数据库事务，确保两步操作要么都成功，要么都失败
+    // 注意：这里我们同时操作了主应用的数据库(db)和本模块的数据库(shoppingDb)
+    // 这是因为余额是全局的，但交易记录是桃宝模块专属的。
+    // Dexie.js 允许跨数据库事务，非常强大！
+    await Dexie.transaction('rw', db, window.db.globalSettings, async () => {
+        await window.db.globalSettings.put(window.state.globalSettings); // 更新主应用的全局设置
+        await db.userWalletTransactions.add(newTransaction); // 在本模块记录交易
+    });
+    
+    console.log(`用户钱包已更新: 金额=${amount.toFixed(2)}, 新余额=${window.state.globalSettings.userBalance.toFixed(2)}`);
+}
+
+/**
+ * 【全新】渲染“我的”页面的余额和交易明细
+ */
+async function renderBalanceDetails() {
+    // 1. 渲染当前余额
+    const balance = window.state?.globalSettings?.userBalance || 0;
+    const userBalanceDisplay = document.getElementById('user-balance-display');
+    if(userBalanceDisplay) userBalanceDisplay.textContent = `¥ ${balance.toFixed(2)}`;
+
+    // 2. 渲染交易明细列表
+    const listEl = document.getElementById('balance-details-list');
+    if(!listEl) return;
+    listEl.innerHTML = ''; 
+
+    const transactions = await db.userWalletTransactions.reverse().sortBy('timestamp');
+
+    if (transactions.length === 0) {
+        listEl.innerHTML = '<p style="text-align: center; color: var(--text-secondary); margin-top: 20px;">还没有任何明细记录</p>';
+        return;
+    }
+    
+    listEl.innerHTML = '<h3 style="margin: 15px 0 10px 0; color: var(--text-secondary);">余额明细</h3>';
+
+    transactions.forEach(item => {
+        const itemEl = document.createElement('div');
+        itemEl.className = 'transaction-item';
+        const sign = item.type === 'income' ? '+' : '-';
+        
+        itemEl.innerHTML = `
+            <div class="transaction-info">
+                <div class="description">${item.description}</div>
+                <div class="timestamp">${new Date(item.timestamp).toLocaleString()}</div>
+            </div>
+            <div class="transaction-amount ${item.type}">
+                ${sign} ${item.amount.toFixed(2)}
+            </div>
+        `;
+        listEl.appendChild(itemEl);
+    });
+}
+// ▲▲▲ Bug修复代码块结束 ▲▲▲
     function showShoppingScreen(screenId) {
         if(screenId === 'none') {
             logisticsUpdateTimers.forEach(timerId => clearTimeout(timerId));
