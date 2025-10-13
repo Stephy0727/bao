@@ -247,19 +247,38 @@
     let currentEditingProductId = null;
     let logisticsUpdateTimers = [];
 
-    function shoppingModule_showScreen(screenId) {
-        if(screenId === 'none') {
-            logisticsUpdateTimers.forEach(timerId => clearTimeout(timerId));
-            logisticsUpdateTimers = [];
-        }
-        const moduleContainer = document.getElementById('shopping-module');
-        if (!moduleContainer) return;
-        moduleContainer.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
-        if (screenId !== 'none') {
-            const screenToShow = moduleContainer.querySelector(`#${screenId}`);
-            if (screenToShow) screenToShow.classList.add('active');
-        }
+// ▼▼▼ 【V2.5 | 终极修复版】请用这整块代码，完整替换旧的 shoppingModule_showScreen 函数 ▼▼▼
+
+function shoppingModule_showScreen(screenId) {
+    const moduleContainer = document.getElementById('shopping-module');
+    if (!moduleContainer) return;
+
+    // 1. 【【【这就是最关键的修复！】】】
+    //    如果指令是 'none'，我们就隐藏整个购物模块的“大门”
+    if (screenId === 'none') {
+        // 清理可能在运行的定时器
+        logisticsUpdateTimers.forEach(timerId => clearTimeout(timerId));
+        logisticsUpdateTimers = [];
+        
+        moduleContainer.classList.remove('active'); // <--- 关键：关闭大门
+        return; // 并在此处结束函数
     }
+    
+    // 2. 【【【第二处关键修复！】】】
+    //    在显示任何内部页面之前，先确保购物模块的“大门”是打开的
+    if (!moduleContainer.classList.contains('active')) {
+        moduleContainer.classList.add('active'); // <--- 关键：打开大门
+    }
+
+    // 3. (这部分逻辑保持不变) 切换模块内部的各个屏幕
+    moduleContainer.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+    const screenToShow = moduleContainer.querySelector(`#${screenId}`);
+    if (screenToShow) {
+        screenToShow.classList.add('active');
+    }
+}
+
+// ▲▲▲ 替换结束 ▲▲▲
 
     async function shoppingModule_updateUserBalanceAndLogTransaction(amount, description) {
         if (!deps.state || !deps.state.globalSettings || isNaN(amount)) {
@@ -678,5 +697,6 @@
     window.initShoppingModule = shoppingModule_init;
 
 })(window);
+
 
 // ▲▲▲ 替换结束 ▲▲▲
