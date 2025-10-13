@@ -658,5 +658,19 @@
     
     // 这是暴露给外部的唯一接口
     window.openShoppingScreen = openShoppingScreen;
+// ▼▼▼ 在这里添加下面的新代码 ▼▼▼
+/**
+ * 【全新】桌面启动器函数：
+ * 无论当前在哪，都强制打开购物页面。
+ */
+window.launchShoppingApp = function() {
+    // 确保模块已初始化
+    if (!isInitialized) {
+        initShoppingApp();
+    }
+    // 直接调用打开购物页面的核心函数
+    openShoppingScreen();
+};
+// ▲▲▲ 添加结束 ▲▲▲
 
 })(window);
