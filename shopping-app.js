@@ -654,10 +654,7 @@
         createShoppingHTML();
         initShoppingEventListeners();
         isInitialized = true;
-    }
-    
-    // 这是暴露给外部的唯一接口
-    window.openShoppingScreen = openShoppingScreen;
+    }    
 // ▼▼▼ 在这里添加下面的新代码 ▼▼▼
 /**
  * 【全新】桌面启动器函数：
@@ -672,5 +669,14 @@ window.launchShoppingApp = function() {
     openShoppingScreen();
 };
 // ▲▲▲ 添加结束 ▲▲▲
+    // ==========================================================
+    //            ★★★ 核心修复：暴露全局接口 ★★★
+    // ==========================================================
+    // 将需要从HTML的onclick中直接调用的函数“挂”到window上
+    window.openShoppingScreen = openShoppingScreen;
+    window.launchShoppingApp = launchShoppingApp; // <-- ★★★ 添加这一行 ★★★
+    // ==========================================================
+
 
 })(window);
+
