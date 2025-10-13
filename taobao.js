@@ -19,6 +19,7 @@
     const mainDb = new Dexie('GeminiChatDB');
     mainDb.version(37).stores({
         globalSettings: '&id',
+        apiConfig: '&id', // ▼▼▼ 【核心修复】在这里补上缺失的 apiConfig 表定义 ▼▼▼
         chats: '&id', 
         userWalletTransactions: '++id, timestamp'
     });
@@ -809,5 +810,6 @@
     }
     
     window.renderTaobaoAppProxy = renderTaobaoAppProxy;
+
 
 })(window);
