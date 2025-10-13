@@ -214,55 +214,81 @@
         }
     }
 
-    // ▼▼▼ 【BUG修复】这里是所有缺失的、完整的函数定义 ▼▼▼
-    async function updateUserBalanceAndLogTransaction(amount, description) {
-        if (!window.state || !window.state.globalSettings || isNaN(amount)) {
-            console.warn("updateUserBalanceAndLogTransaction 调用失败：缺少主应用状态或有效的amount。");
-            return;
-        }
-        window.state.globalSettings.userBalance = (window.state.globalSettings.userBalance || 0) + amount;
-        const newTransaction = {
-            type: amount > 0 ? 'income' : 'expense',
-            amount: Math.abs(amount),
-            description: description,
-            timestamp: Date.now()
-        };
-        await Dexie.transaction('rw', db.userWalletTransactions, window.db.globalSettings, async () => {
-            await window.db.globalSettings.put(window.state.globalSettings);
-            await db.userWalletTransactions.add(newTransaction);
-        });
-        console.log(`用户钱包已更新: 金额=${amount.toFixed(2)}, 新余额=${window.state.globalSettings.userBalance.toFixed(2)}`);
+// ▼▼▼ 请将这【一整块】缺失的、用于修复Bug的代码，粘贴到 showShoppingScreen 函数的后面 ▼▼▼
+
+/**
+ * 【全新】核心函数：更新用户余额并记录一笔交易
+ * @param {number} amount - 交易金额 (正数为收入, 负数为支出)
+ * @param {string} description - 交易描述 (例如: "转账给 XX", "收到 XX 的红包")
+ */
+async function updateUserBalanceAndLogTransaction(amount, description) {
+    // 安全检查：如果主应用的状态或全局设置不存在，则不执行
+    if (!window.state || !window.state.globalSettings || isNaN(amount)) {
+        console.warn("updateUserBalanceAndLogTransaction 调用失败：缺少主应用状态或有效的amount。");
+        return;
     }
 
-    async function renderBalanceDetails() {
-        const balance = window.state?.globalSettings?.userBalance || 0;
-        const userBalanceDisplay = document.getElementById('user-balance-display');
-        if(userBalanceDisplay) userBalanceDisplay.textContent = `¥ ${balance.toFixed(2)}`;
+    // 确保余额是数字
+    window.state.globalSettings.userBalance = (window.state.globalSettings.userBalance || 0) + amount;
 
-        const listEl = document.getElementById('balance-details-list');
-        if(!listEl) return;
-        listEl.innerHTML = ''; 
-        const transactions = await db.userWalletTransactions.reverse().sortBy('timestamp');
-        if (transactions.length === 0) {
-            listEl.innerHTML = '<p style="text-align: center; color: var(--text-secondary); margin-top: 20px;">还没有任何明细记录</p>';
-            return;
-        }
-        listEl.innerHTML = '<h3 style="margin: 15px 0 10px 0; color: var(--text-secondary);">余额明细</h3>';
-        transactions.forEach(item => {
-            const itemEl = document.createElement('div');
-            itemEl.className = 'transaction-item';
-            const sign = item.type === 'income' ? '+' : '-';
-            itemEl.innerHTML = `
-                <div class="transaction-info">
-                    <div class="description">${item.description}</div>
-                    <div class="timestamp">${new Date(item.timestamp).toLocaleString()}</div>
-                </div>
-                <div class="transaction-amount ${item.type}">${sign} ${item.amount.toFixed(2)}</div>
-            `;
-            listEl.appendChild(itemEl);
-        });
+    const newTransaction = {
+        type: amount > 0 ? 'income' : 'expense',
+        amount: Math.abs(amount),
+        description: description,
+        timestamp: Date.now()
+    };
+
+    // 使用数据库事务，确保两步操作要么都成功，要么都失败
+    await Dexie.transaction('rw', db.userWalletTransactions, window.db.globalSettings, async () => {
+        await window.db.globalSettings.put(window.state.globalSettings); // 更新主应用的全局设置
+        await db.userWalletTransactions.add(newTransaction); // 在本模块记录交易
+    });
+    
+    console.log(`用户钱包已更新: 金额=${amount.toFixed(2)}, 新余额=${window.state.globalSettings.userBalance.toFixed(2)}`);
+}
+
+/**
+ * 【全新】渲染“我的”页面的余额和交易明细
+ */
+async function renderBalanceDetails() {
+    // 1. 渲染当前余额
+    const balance = window.state?.globalSettings?.userBalance || 0;
+    const userBalanceDisplay = document.getElementById('user-balance-display');
+    if(userBalanceDisplay) userBalanceDisplay.textContent = `¥ ${balance.toFixed(2)}`;
+
+    // 2. 渲染交易明细列表
+    const listEl = document.getElementById('balance-details-list');
+    if(!listEl) return;
+    listEl.innerHTML = ''; 
+
+    const transactions = await db.userWalletTransactions.reverse().sortBy('timestamp');
+
+    if (transactions.length === 0) {
+        listEl.innerHTML = '<p style="text-align: center; color: var(--text-secondary); margin-top: 20px;">还没有任何明细记录</p>';
+        return;
     }
     
+    listEl.innerHTML = '<h3 style="margin: 15px 0 10px 0; color: var(--text-secondary);">余额明细</h3>';
+
+    transactions.forEach(item => {
+        const itemEl = document.createElement('div');
+        itemEl.className = 'transaction-item';
+        const sign = item.type === 'income' ? '+' : '-';
+        
+        itemEl.innerHTML = `
+            <div class="transaction-info">
+                <div class="description">${item.description}</div>
+                <div class="timestamp">${new Date(item.timestamp).toLocaleString()}</div>
+            </div>
+            <div class="transaction-amount ${item.type}">
+                ${sign} ${item.amount.toFixed(2)}
+            </div>
+        `;
+        listEl.appendChild(itemEl);
+    });
+}
+
+// ▲▲▲ Bug修复代码块结束 ▲▲▲
     // (以下所有函数均为从兔k文件提取并适配后的桃宝功能)
     async function clearTaobaoProducts() {
         const confirmed = await window.showCustomConfirm('确认清空', '确定要清空桃宝首页的所有商品吗？此操作将【一并清空购物车】，且无法恢复。', { confirmButtonClass: 'btn-danger' });
@@ -467,12 +493,6 @@
     function displayAiGeneratedProducts(products, title) { /* ... full logic ... */ }
 
     // (This is a simplified representation. The full functions are included below)
-    
-    // ▲▲▲ Bug修复代码块结束 ▲▲▲
-    
-    // (此处粘贴所有从兔k文件中提取并适配后的桃宝JS函数)
-    // ...
-    // ...
 
     // -------------------------------------------------
     // [第四部分] 全局入口点与初始化
