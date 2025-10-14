@@ -1,4 +1,4 @@
-(function(window) {
+(function() {
     'use strict';
 
     // ===================================================================
@@ -8,7 +8,7 @@
     const db = new Dexie('TaobaoDB');
     let logisticsUpdateTimers = [];
     let currentEditingProductId = null;
-    let mainAppState = { globalSettings: {}, apiConfig: {}, chats: {} }; // 用于缓存从主应用获取的状态
+    let mainAppState = { globalSettings: {}, apiConfig: {}, chats: {} };
 
     db.version(1).stores({
         products: '++id, name, category',
@@ -19,7 +19,7 @@
     const mainDb = new Dexie('GeminiChatDB');
     mainDb.version(37).stores({
         globalSettings: '&id',
-        apiConfig: '&id', // ▼▼▼ 【核心修复】在这里补上缺失的 apiConfig 表定义 ▼▼▼
+        apiConfig: '&id',
         chats: '&id', 
         userWalletTransactions: '++id, timestamp'
     });
@@ -186,19 +186,19 @@
     }
 
     // ===================================================================
-    // 3. 所有功能函数 (已适配新的ID和数据库)
+    // 3. 所有功能函数 (已适配 - 无 window. 前缀)
     // ===================================================================
     
     async function openTaobaoApp() {
         await loadMainAppState();
-        window.showScreen('taobao-screen');
+        showScreen('taobao-screen');
         switchTaobaoView('taobao-products-view');
         await renderTaobaoProducts();
         await updateCartBadge();
     }
     
     async function clearTaobaoProducts() {
-        const confirmed = await window.showCustomConfirm('确认清空', '确定要清空桃宝所有商品吗？此操作将一并清空购物车。', { confirmButtonClass: 'btn-danger' });
+        const confirmed = await showCustomConfirm('确认清空', '确定要清空桃宝所有商品吗？此操作将一并清空购物车。', { confirmButtonClass: 'btn-danger' });
         if (confirmed) {
             await db.transaction('rw', db.products, db.cart, async () => {
                 await db.products.clear();
@@ -207,7 +207,7 @@
             await renderTaobaoProducts();
             await renderTaobaoCart();
             updateCartBadge();
-            await window.showCustomAlert('操作成功', '所有商品及购物车已被清空！');
+            await showCustomAlert('操作成功', '所有商品及购物车已被清空！');
         }
     }
     
@@ -302,7 +302,7 @@
         } else {
             await db.cart.add({ productId: productId, quantity: 1 });
         }
-        await window.showCustomAlert('成功', '宝贝已加入购物车！');
+        await showCustomAlert('成功', '宝贝已加入购物车！');
         updateCartBadge();
     }
     
@@ -360,7 +360,7 @@
             alert("余额不足！请先去“我的”页面充值。");
             return;
         }
-        const confirmed = await window.showCustomConfirm('确认支付', `本次将花费 ¥${totalPrice.toFixed(2)}，确定要结算吗？`, { confirmText: '立即支付' });
+        const confirmed = await showCustomConfirm('确认支付', `本次将花费 ¥${totalPrice.toFixed(2)}，确定要结算吗？`, { confirmText: '立即支付' });
         if (confirmed) {
             const cartItems = await db.cart.toArray();
             await updateUserBalanceAndLogTransaction(-totalPrice, '桃宝购物');
@@ -425,7 +425,7 @@
         if (!order) return;
         logisticsUpdateTimers.forEach(clearTimeout);
         logisticsUpdateTimers = [];
-        window.showScreen('taobao-logistics-screen');
+        showScreen('taobao-logistics-screen');
         await renderLogisticsView(order);
     }
     
@@ -439,9 +439,9 @@
         const mainStatusEl = document.getElementById('taobao-logistics-main-status');
         const creationTime = order.timestamp;
         const cities = ["东莞", "广州", "长沙", "武汉", "郑州", "北京", "上海"];
-        const startCity = window.getRandomItem(cities);
-        let nextCity = window.getRandomItem(cities.filter(c => c !== startCity));
-        const userCity = window.getRandomItem(cities.filter(c => c !== startCity && c !== nextCity)) || '您的城市';
+        const startCity = getRandomItem(cities);
+        let nextCity = getRandomItem(cities.filter(c => c !== startCity));
+        const userCity = getRandomItem(cities.filter(c => c !== startCity && c !== nextCity)) || '您的城市';
         
         let cumulativeDelay = 0;
         logisticsTimelineTemplate.forEach(stepInfo => {
@@ -480,7 +480,7 @@
     
     function getRandomDefaultProductImage() {
         const defaultImages = ['https://i.postimg.cc/W4svy4Hm/Image-1760206134285.jpg','https://i.postimg.cc/jjRb1jF7/Image-1760206125678.jpg'];
-        return window.getRandomItem(defaultImages);
+        return getRandomItem(defaultImages);
     }
     
     function openAddProductChoiceModal() { document.getElementById('taobao-add-product-choice-modal').classList.add('visible'); }
@@ -535,14 +535,14 @@
         if (!nameMatch || !nameMatch[1]) { alert('无法识别商品名称！'); return; }
         const name = nameMatch[1];
         document.getElementById('taobao-add-from-link-modal').classList.remove('visible');
-        const priceStr = await window.showCustomPrompt(`商品: ${name}`, "请输入价格 (元):", "", "number");
+        const priceStr = await showCustomPrompt(`商品: ${name}`, "请输入价格 (元):", "", "number");
         if (priceStr === null) return;
         const price = parseFloat(priceStr);
         if (isNaN(price) || price <= 0) { alert("请输入有效的价格！"); return; }
-        let imageUrl = await window.showCustomPrompt(`商品: ${name}`, "请输入图片链接 (URL, 可选):");
+        let imageUrl = await showCustomPrompt(`商品: ${name}`, "请输入图片链接 (URL, 可选):");
         if (imageUrl === null) return;
         if (!imageUrl || !imageUrl.trim()) imageUrl = getRandomDefaultProductImage();
-        const category = await window.showCustomPrompt(`商品: ${name}`, "请输入分类 (可选):");
+        const category = await showCustomPrompt(`商品: ${name}`, "请输入分类 (可选):");
         await db.products.add({ name, price, imageUrl, category: category || '', reviews: [] });
         await renderTaobaoProducts();
     }
@@ -578,7 +578,7 @@
     }
     
     async function handleTopUp() {
-        const amountStr = await window.showCustomPrompt("充值", "请输入要充值的金额 (元):", "", "number");
+        const amountStr = await showCustomPrompt("充值", "请输入要充值的金额 (元):", "", "number");
         if (amountStr !== null) {
             const amount = parseFloat(amountStr);
             if (!isNaN(amount) && amount > 0) {
@@ -591,7 +591,6 @@
         }
     }
     
-    // ▼▼▼ 修正/新增: 社交功能函数 ▼▼▼
     async function handleShareCartRequest() {
         const cartItems = await db.cart.toArray();
         if (cartItems.length === 0) return;
@@ -606,24 +605,18 @@
 
         const charBalance = char.characterPhoneData?.bank?.balance || 0;
         if (charBalance < totalPrice) {
-            await window.showCustomAlert("代付失败", `“${char.name}”的钱包余额不足！`);
+            await showCustomAlert("代付失败", `“${char.name}”的钱包余额不足！`);
             return;
         }
 
         const requestContent = `[购物车代付请求]\n总金额: ¥${totalPrice.toFixed(2)}\n(你的当前余额: ¥${charBalance.toFixed(2)})\n请使用 'cart_payment_response' 指令回应。`;
-        const requestMessage = {
-            role: 'user',
-            type: 'cart_share_request',
-            timestamp: Date.now(),
-            content: requestContent,
-            payload: { totalPrice, itemCount: cartItems.length, status: 'pending' }
-        };
+        const requestMessage = { role: 'user', type: 'cart_share_request', timestamp: Date.now(), content: requestContent, payload: { totalPrice, itemCount: cartItems.length, status: 'pending' } };
         
         char.history.push(requestMessage);
         await mainDb.chats.put(char);
         
-        await window.showCustomAlert("请求已发送", `已将代付请求发送给“${char.name}”，请在聊天中查看TA的回应。`);
-        window.openChat(targetChatId); // This is assumed to be a global function from the main app
+        await showCustomAlert("请求已发送", `已将代付请求发送给“${char.name}”，请在聊天中查看TA的回应。`);
+        openChat(targetChatId);
     }
 
     async function handleBuyForChar() {
@@ -643,32 +636,27 @@
             return;
         }
 
-        const confirmed = await window.showCustomConfirm('确认赠送', `确定要花费 ¥${totalPrice.toFixed(2)} 为“${char.name}”购买吗？`, { confirmText: '为Ta买单' });
+        const confirmed = await showCustomConfirm('确认赠送', `确定要花费 ¥${totalPrice.toFixed(2)} 为“${char.name}”购买吗？`, { confirmText: '为Ta买单' });
         if (confirmed) {
-            await window.showCustomAlert("正在处理...", "正在为心爱的Ta下单...");
+            await showCustomAlert("正在处理...", "正在为心爱的Ta下单...");
             await updateUserBalanceAndLogTransaction(-totalPrice, `为 ${char.name} 购买商品`);
             await createOrdersFromCart(cartItems);
             await sendGiftNotificationToChar(targetChatId, products, cartItems, totalPrice);
             await clearTaobaoCart();
-            await window.showCustomAlert("赠送成功！", `礼物已下单，并已通知对方！`);
-            if (window.renderChatListProxy) window.renderChatListProxy();
+            await showCustomAlert("赠送成功！", `礼物已下单，并已通知对方！`);
+            if (typeof renderChatListProxy === 'function') renderChatListProxy();
         }
     }
 
-    async function openCharSelectorForCart() {
-        // This function would be similar to the one in your original file,
-        // but using a generic modal provided by the main app.
-        // For simplicity, we assume a global function `window.showCharSelector` exists.
-        return window.showCharSelector();
-    }
+    async function openCharSelectorForCart() { return showCharSelector(); }
 
     async function createOrdersFromCart(cartItems) {
         if (!cartItems || cartItems.length === 0) return;
         const newOrders = cartItems.map((item, index) => ({ productId: item.productId, quantity: item.quantity, timestamp: Date.now() + index, status: '已付款，等待发货' }));
         await db.orders.bulkAdd(newOrders);
         setTimeout(async () => {
-            const orderIds = newOrders.map(o => o.timestamp);
-            const ordersToUpdate = await db.orders.where('timestamp').anyOf(orderIds).toArray();
+            const orderTimestamps = newOrders.map(o => o.timestamp);
+            const ordersToUpdate = await db.orders.where('timestamp').anyOf(orderTimestamps).toArray();
             for (const order of ordersToUpdate) {
                 await db.orders.update(order.id, { status: '已发货，运输中' });
             }
@@ -692,11 +680,10 @@
         chat.history.push(hiddenMessage);
         chat.unreadCount = (chat.unreadCount || 0) + 1;
         await mainDb.chats.put(chat);
-        if (window.showNotification && window.state.activeChatId !== targetChatId) {
-            window.showNotification(targetChatId, '你收到了一份礼物！');
+        if (typeof showNotification === 'function' && typeof state !== 'undefined' && state.activeChatId !== targetChatId) {
+            showNotification(targetChatId, '你收到了一份礼物！');
         }
     }
-    // ▲▲▲ 修正/新增结束 ▲▲▲
     
     async function loadMainAppState() {
         const [globalSettings, apiConfig, chatsArr] = await Promise.all([
@@ -729,7 +716,10 @@
             const addProductBtn = target.closest('#taobao-add-product-btn');
             const clearProductsBtn = target.closest('#taobao-clear-products-btn');
 
-            if (backBtn) { window.showScreen('home-screen'); return; }
+            if (backBtn && backBtn.parentElement.parentElement.id === 'taobao-screen') { 
+                showScreen('home-screen'); 
+                return; 
+            }
             if (tabBtn) { switchTaobaoView(tabBtn.dataset.view); return; }
             if (addProductBtn) { openAddProductChoiceModal(); return; }
             if (clearProductsBtn) { await clearTaobaoProducts(); return; }
@@ -749,10 +739,17 @@
             if (cartItemAction) {
                 const cartId = parseInt(cartItemAction.dataset.cartId);
                 if (target.classList.contains('quantity-increase')) await handleChangeCartItemQuantity(cartId, 1);
-                else if (target.classList.contains('quantity-decrease')) await handleChangeCartItemQuantity(cartId, -1);
+                else if (target.classList.contains('quantity-decrease')) {
+                    const item = await db.cart.get(cartId);
+                    if (item.quantity <= 1) {
+                        const confirmed = await showCustomConfirm('移出购物车', '确定要删除这个宝贝吗？');
+                        if (confirmed) await handleRemoveFromCart(cartId);
+                    } else {
+                        await handleChangeCartItemQuantity(cartId, -1);
+                    }
+                }
                 else if (target.classList.contains('delete-cart-item-btn')) {
-                    const confirmed = await window.showCustomConfirm('移出购物车', '确定要删除这个宝贝吗？');
-                    if (confirmed) await handleRemoveFromCart(cartId);
+                    await handleRemoveFromCart(cartId);
                 }
                 return;
             }
@@ -794,7 +791,7 @@
         document.getElementById('taobao-close-product-detail-btn').addEventListener('click', () => document.getElementById('taobao-product-detail-modal').classList.remove('visible'));
         document.getElementById('taobao-detail-add-to-cart-btn').addEventListener('click', async () => { const productId = parseInt(document.getElementById('taobao-product-detail-modal').dataset.productId); await handleAddToCart(productId); document.getElementById('taobao-product-detail-modal').classList.remove('visible'); });
         document.getElementById('taobao-generate-reviews-btn').addEventListener('click', () => { const productId = parseInt(document.getElementById('taobao-product-detail-modal').dataset.productId); generateProductReviews(productId); });
-        document.getElementById('taobao-logistics-back-btn').addEventListener('click', () => { window.showScreen('taobao-screen'); switchTaobaoView('taobao-orders-view'); });
+        document.getElementById('taobao-logistics-back-btn').addEventListener('click', () => { showScreen('taobao-screen'); switchTaobaoView('taobao-orders-view'); });
         document.getElementById('taobao-app-icon').addEventListener('click', openTaobaoApp);
     }
 
@@ -811,5 +808,4 @@
     
     window.renderTaobaoAppProxy = renderTaobaoAppProxy;
 
-
-})(window);
+})();
