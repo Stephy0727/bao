@@ -1,6 +1,6 @@
 // ===================================================================================
 //
-//                        TAOBAO APP - SELF-CONTAINED MODULE
+//                        TAOBAO APP - SELF-CONTAINED MODULE (v1.1 - Bug Fixed)
 //
 // ===================================================================================
 //
@@ -31,27 +31,18 @@ if (!window.EPhone) {
         showCustomPrompt: (title, message, defaultValue) => Promise.resolve(prompt(message, defaultValue)),
         api: {
             getWalletBalance: async () => {
-                // 模拟异步获取
                 await new Promise(resolve => setTimeout(resolve, 50)); 
                 return standaloneWalletBalance;
             },
-            // 关键：将 updateWallet 变为 async 函数，确保其行为和真实API一致
             updateWallet: async (amount, description) => {
                 console.log(`Standalone Mode: Wallet updated by ${amount}. Reason: ${description}`);
                 standaloneWalletBalance += amount;
-                // 这个模拟函数现在只负责更新余额，不再回调，职责清晰
-                await new Promise(resolve => setTimeout(resolve, 100)); // 模拟网络延迟
+                await new Promise(resolve => setTimeout(resolve, 100));
                 return Promise.resolve();
             },
             getChat: (chatId) => null,
-            openCharSelector: (title) => {
-                console.log("Standalone Mode: Character selector opened.");
-                return Promise.resolve(null);
-            },
-            sendMessage: (chatId, messageObject) => {
-                console.log(`Standalone Mode: Message sent to ${chatId}:`, messageObject);
-                return Promise.resolve();
-            },
+            openCharSelector: (title) => Promise.resolve(null),
+            sendMessage: (chatId, messageObject) => Promise.resolve(),
             getUserNickname: () => "我"
         }
     };
@@ -61,14 +52,34 @@ if (!window.EPhone) {
 (function(window) {
     'use strict';
 
-    // ▼▼▼ 日志工具 ▼▼▼
     const logInfo = (message) => console.log(`%c🚀 [桃宝App] ${message}`, 'color: #2980b9; font-weight: bold;');
     const logSuccess = (message) => console.log(`%c✅ [桃宝App] ${message}`, 'color: #27ae60;');
     const logError = (message) => console.error(`%c❌ [桃宝App] ${message}`, 'color: #c0392b;');
+    
+    // ▼▼▼ 【致命错误修复】添加缺失的 addLongPressListener 辅助函数 ▼▼▼
+    function addLongPressListener(element, callback) {
+        let pressTimer;
+        const startPress = (e) => { 
+            // 阻止默认行为，如移动端的文本选择
+            e.preventDefault(); 
+            pressTimer = window.setTimeout(() => {
+                if (callback) callback(e);
+            }, 500); // 500ms 触发长按
+        };
+        const cancelPress = () => {
+            clearTimeout(pressTimer);
+        };
+        // 桌面端
+        element.addEventListener('mousedown', startPress);
+        element.addEventListener('mouseup', cancelPress);
+        element.addEventListener('mouseleave', cancelPress);
+        // 移动端
+        element.addEventListener('touchstart', startPress, { passive: false });
+        element.addEventListener('touchend', cancelPress);
+        element.addEventListener('touchmove', cancelPress);
+    }
+    // ▲▲▲ 修复结束 ▲▲▲
 
-    // ===================================================================
-    //  1. 主应用对象
-    // ===================================================================
     const TaobaoApp = {
         identity: {
             id: 'taobao',
@@ -85,16 +96,11 @@ if (!window.EPhone) {
             currentTaobaoCategory: null,
         },
 
-        // ===================================================================
-        //  2. 核心设置 (HTML/CSS注入, 初始化)
-        // ===================================================================
         injectTaobaoStyles: function() {
             if (document.getElementById('taobao-app-styles')) return;
-
             const style = document.createElement('style');
             style.id = 'taobao-app-styles';
             style.textContent = `
-                /* --- 桃宝App 作用域内样式 --- */
                 #taobao-screen { background-color: #f0f2f5; }
                 #taobao-screen .taobao-tabs { display: flex; flex-shrink: 0; border-bottom: 1px solid var(--border-color); background-color: var(--secondary-bg); }
                 #taobao-screen .taobao-tab { flex: 1; padding: 12px 0; text-align: center; font-weight: 500; color: var(--text-secondary); border: none; background: none; cursor: pointer; position: relative; }
@@ -176,7 +182,6 @@ if (!window.EPhone) {
 
             const htmlWrapper = document.createElement('div');
             htmlWrapper.innerHTML = `
-                <!-- ▼▼▼ “桃宝”功能主屏幕 ▼▼▼ -->
                 <div id="taobao-screen" class="screen" style="display:none; flex-direction:column;">
                     <div class="header">
                         <span class="back-btn" onclick="window.EPhone.showScreen('home-screen')">‹</span>
@@ -206,9 +211,7 @@ if (!window.EPhone) {
                         <div id="taobao-cart-view" class="taobao-view">
                             <div id="taobao-cart-item-list"></div>
                             <div id="taobao-cart-checkout-bar" style="display: none;">
-                                <div class="total-price">
-                                    合计: <span id="taobao-cart-total-price">¥ 0.00</span>
-                                </div>
+                                <div class="total-price">合计: <span id="taobao-cart-total-price">¥ 0.00</span></div>
                                 <div style="display: flex; gap: 10px;">
                                     <button id="taobao-share-cart-to-char-btn">分享给Ta代付</button>
                                     <button id="taobao-buy-for-char-btn">为Ta购买</button>
@@ -225,55 +228,13 @@ if (!window.EPhone) {
                                 <h2 id="taobao-user-balance-display">¥ 0.00</h2>
                                 <button id="taobao-top-up-btn" class="form-button">给钱包充点钱</button>
                             </div>
-                            <div id="taobao-balance-details-list"></div>
+                            <div id="taobao-balance-details-list" class="order-list" style="padding: 0 15px;"></div>
                         </div>
                     </div>
                 </div>
-                <!-- ▼▼▼ 商品详情弹窗 (Modal) ▼▼▼ -->
-                <div id="taobao-product-detail-modal" class="modal">
-                    <div class="modal-content">
-                        <div class="modal-header"><span>商品详情</span></div>
-                        <div class="modal-body" id="taobao-product-detail-body"></div>
-                        <div id="taobao-product-reviews-section">
-                            <h3>宝贝评价</h3>
-                            <div id="taobao-product-reviews-list"></div>
-                            <button id="taobao-generate-reviews-btn" class="form-button form-button-secondary">✨ AI生成评价</button>
-                        </div>
-                        <div class="modal-footer">
-                            <button class="cancel" id="taobao-close-product-detail-btn">关闭</button>
-                            <button class="save" id="taobao-detail-add-to-cart-btn">加入购物车</button>
-                        </div>
-                    </div>
-                </div>
-                <!-- ▼▼▼ 添加商品方式选择弹窗 (Modal) ▼▼▼ -->
-                <div id="taobao-add-product-choice-modal" class="modal">
-                    <div id="custom-modal" style="width: 250px;">
-                        <div class="custom-modal-header">选择添加方式</div>
-                        <div class="custom-modal-footer">
-                            <button id="taobao-add-product-manual-btn">手动添加</button>
-                            <button id="taobao-add-product-link-btn">识别链接</button>
-                            <button id="taobao-add-product-ai-btn">AI生成</button>
-                            <button id="taobao-cancel-add-choice-btn" style="margin-top: 8px; border-radius: 8px; background-color: #f0f0f0;">取消</button>
-                        </div>
-                    </div>
-                </div>
-                <!-- ▼▼▼ 手动添加/编辑商品弹窗 (Modal) ▼▼▼ -->
-                <div id="taobao-product-editor-modal" class="modal">
-                    <div class="modal-content" style="height: auto;">
-                        <div class="modal-header"><span id="taobao-product-editor-title">添加新商品</span></div>
-                        <div class="modal-body">
-                            <div class="form-group"><label for="taobao-product-name-input">商品名称</label><input type="text" id="taobao-product-name-input"></div>
-                            <div class="form-group"><label for="taobao-product-price-input">价格 (元)</label><input type="number" id="taobao-product-price-input"></div>
-                            <div class="form-group"><label for="taobao-product-image-input">图片 URL</label><input type="text" id="taobao-product-image-input"></div>
-                            <div class="form-group"><label for="taobao-product-category-input">分类 (选填)</label><input type="text" id="taobao-product-category-input" placeholder="例如：衣服, 零食..."></div>
-                        </div>
-                        <div class="modal-footer">
-                            <button class="cancel" id="taobao-cancel-product-editor-btn">取消</button>
-                            <button class="save" id="taobao-save-product-btn">保存</button>
-                        </div>
-                    </div>
-                </div>
-                 <!-- ... (其他弹窗的HTML可以放在这里) ... -->
+                <div id="taobao-product-detail-modal" class="modal"><div class="modal-content"><div class="modal-header"><span>商品详情</span></div><div class="modal-body" id="taobao-product-detail-body"></div><div id="taobao-product-reviews-section"><h3>宝贝评价</h3><div id="taobao-product-reviews-list"></div><button id="taobao-generate-reviews-btn" class="form-button form-button-secondary">✨ AI生成评价</button></div><div class="modal-footer"><button class="cancel" id="taobao-close-product-detail-btn">关闭</button><button class="save" id="taobao-detail-add-to-cart-btn">加入购物车</button></div></div></div>
+                <div id="taobao-add-product-choice-modal" class="modal"><div id="custom-modal" style="width: 250px;"><div class="custom-modal-header">选择添加方式</div><div class="custom-modal-footer"><button id="taobao-add-product-manual-btn">手动添加</button><button id="taobao-add-product-link-btn">识别链接</button><button id="taobao-add-product-ai-btn">AI生成</button><button id="taobao-cancel-add-choice-btn" style="margin-top: 8px; border-radius: 8px; background-color: #f0f0f0;">取消</button></div></div></div>
+                <div id="taobao-product-editor-modal" class="modal"><div class="modal-content" style="height: auto;"><div class="modal-header"><span id="taobao-product-editor-title">添加新商品</span></div><div class="modal-body"><div class="form-group"><label for="taobao-product-name-input">商品名称</label><input type="text" id="taobao-product-name-input"></div><div class="form-group"><label for="taobao-product-price-input">价格 (元)</label><input type="number" id="taobao-product-price-input"></div><div class="form-group"><label for="taobao-product-image-input">图片 URL</label><input type="text" id="taobao-product-image-input"></div><div class="form-group"><label for="taobao-product-category-input">分类 (选填)</label><input type="text" id="taobao-product-category-input" placeholder="例如：衣服, 零食..."></div></div><div class="modal-footer"><button class="cancel" id="taobao-cancel-product-editor-btn">取消</button><button class="save" id="taobao-save-product-btn">保存</button></div></div></div>
             `;
             while (htmlWrapper.firstChild) {
                 document.body.appendChild(htmlWrapper.firstChild);
@@ -283,7 +244,6 @@ if (!window.EPhone) {
         initInternal: async function() {
             logInfo("开始初始化...");
             
-            // 确保 Dexie 已经加载
             if (typeof Dexie === 'undefined') {
                 logError("Dexie.js 未加载. 桃宝App无法初始化数据库。");
                 return;
@@ -302,6 +262,7 @@ if (!window.EPhone) {
             this.injectTaobaoStyles();
             this.createTaobaoHTML();
             this.bindEvents();
+            await this.renderTaobaoProducts();
             await this.renderBalanceDetails();
             await this.updateCartBadge();
             logSuccess("模块已完全初始化并准备就绪。");
@@ -315,10 +276,7 @@ if (!window.EPhone) {
                     <div class="icon-bg-desktop"><img src="${this.identity.iconUrl}" alt="${this.identity.name}"></div>
                     <span class="label">${this.identity.name}</span>
                 `;
-                placeholder.addEventListener('click', () => {
-                    this.open();
-                    window.EPhone.showScreen(this.identity.screenId);
-                });
+                placeholder.addEventListener('click', () => this.open());
                 logSuccess("已与宿主环境集成 (图标已绑定)");
             } else {
                 console.warn(`[桃宝App] 未找到宿主占位符 #taobao-app-placeholder`);
@@ -326,20 +284,81 @@ if (!window.EPhone) {
         },
 
         bindEvents: function() {
-            document.getElementById('taobao-screen').addEventListener('click', async (e) => {
+            // ▼▼▼ 【功能补全】使用事件委托处理动态生成的元素点击事件 ▼▼▼
+            const taobaoScreen = document.getElementById('taobao-screen');
+            if (!taobaoScreen) {
+                logError("无法绑定事件：找不到 #taobao-screen 元素。");
+                return;
+            }
+            
+            taobaoScreen.addEventListener('click', async (e) => {
                 const target = e.target;
-                if (target.classList.contains('taobao-tab')) {
-                    this.switchTaobaoView(target.dataset.view);
+                
+                // 页签切换
+                if (target.closest('.taobao-tab')) {
+                    this.switchTaobaoView(target.closest('.taobao-tab').dataset.view);
                 }
+                
+                // 添加商品按钮
                 if (target.id === 'taobao-add-product-btn') {
                     this.openAddProductChoiceModal();
                 }
+
+                // 清空商品
+                if (target.id === 'taobao-clear-products-btn') {
+                    await this.clearTaobaoProducts();
+                }
+
+                // 购物车数量增加
+                if (target.classList.contains('quantity-increase')) {
+                    const cartId = parseInt(target.dataset.cartId);
+                    if (!isNaN(cartId)) await this.handleChangeCartItemQuantity(cartId, 1);
+                }
+
+                // 购物车数量减少
+                if (target.classList.contains('quantity-decrease')) {
+                    const cartId = parseInt(target.dataset.cartId);
+                    if (!isNaN(cartId)) await this.handleChangeCartItemQuantity(cartId, -1);
+                }
+                
+                // 删除购物车商品
+                if (target.classList.contains('delete-cart-item-btn')) {
+                    const cartId = parseInt(target.dataset.cartId);
+                    if (!isNaN(cartId)) {
+                        const confirmed = await window.EPhone.showCustomConfirm('移出购物车', '确定要删除这个宝贝吗？');
+                        if (confirmed) await this.handleRemoveFromCart(cartId);
+                    }
+                }
+                
+                // 点击商品卡片打开详情
+                const productCard = target.closest('.product-card');
+                if (productCard && !target.classList.contains('add-cart-btn')) {
+                     const productId = parseInt(productCard.dataset.productId);
+                     if (!isNaN(productId)) await this.openProductDetail(productId);
+                }
+
+                // 首页商品卡上的“+”按钮加入购物车
+                if (target.classList.contains('add-cart-btn')) {
+                    const productId = parseInt(target.dataset.productId);
+                    if (!isNaN(productId)) await this.handleAddToCart(productId);
+                }
+
+                // 分类页签
+                if (target.classList.contains('category-tab-btn')) {
+                    const category = target.dataset.category === 'all' ? null : target.dataset.category;
+                    await this.renderTaobaoProducts(category);
+                }
+                
+                // 结算栏按钮
+                if (target.id === 'taobao-checkout-btn') await this.handleCheckout();
+                // if (target.id === 'taobao-share-cart-to-char-btn') await this.handleShareCartRequest();
+                // if (target.id === 'taobao-buy-for-char-btn') await this.handleBuyForChar();
 
                 // ▼▼▼ 【核心修复：重构充值逻辑】 ▼▼▼
                 if (target.id === 'taobao-top-up-btn') {
                     try {
                         const amountStr = await window.EPhone.showCustomPrompt('钱包充值', '请输入要充值的金额', '100');
-                        if (amountStr === null) return; // 用户取消
+                        if (amountStr === null) return; 
 
                         const amount = parseFloat(amountStr);
                         if (isNaN(amount) || amount <= 0) {
@@ -347,24 +366,19 @@ if (!window.EPhone) {
                             return;
                         }
 
-                        // 第1步: 调用API更新全局余额 (必须等待它完成)
-                        await window.EPhone.api.updateWallet(amount, '用户充值');
+                        await window.EPhone.api.updateWallet(amount, '钱包充值');
                         logInfo(`API钱包已更新: +${amount}`);
 
-                        // 第2步: 在本地数据库中创建交易记录 (必须等待它完成)
                         await this.db.userWalletTransactions.add({
                             amount: amount,
                             description: '钱包充值',
-                            type: 'income',
                             timestamp: Date.now()
                         });
                         logInfo(`本地交易记录已创建`);
 
-                        // 第3步: 所有数据操作完成后，再刷新UI
                         await this.renderBalanceDetails();
                         logSuccess(`UI已刷新，新余额应该已显示`);
                         
-                        // 第4步: 给用户最终反馈
                         await window.EPhone.showCustomAlert('充值成功', `你的钱包已成功充值 ¥${amount.toFixed(2)}！`);
 
                     } catch (error) {
@@ -372,32 +386,40 @@ if (!window.EPhone) {
                         await window.EPhone.showCustomAlert('充值失败', `发生了一个错误: ${error.message}`);
                     }
                 }
-                 // ▲▲▲ 【修复结束】 ▲▲▲
+                // ▲▲▲ 修复结束 ▲▲▲
+
+                // 订单列表点击 (暂未实现)
+                // const orderItem = target.closest('.order-item');
+                // if(orderItem && orderItem.closest('#taobao-orders-view')) {}
             });
+
+            // 绑定各个弹窗的关闭/保存按钮 (使用更安全的方式)
+            const bindModalAction = (btnId, event, handler) => {
+                const btn = document.getElementById(btnId);
+                if (btn) {
+                    btn.addEventListener(event, handler);
+                } else {
+                    logError(`绑定事件失败：找不到元素 #${btnId}`);
+                }
+            };
             
-            // 绑定其他弹窗的事件
-            document.getElementById('taobao-add-product-manual-btn').addEventListener('click', () => {
-                document.getElementById('taobao-add-product-choice-modal').classList.remove('visible');
-                this.openProductEditor();
-            });
-            document.getElementById('taobao-cancel-add-choice-btn').addEventListener('click', () => {
-                document.getElementById('taobao-add-product-choice-modal').classList.remove('visible');
-            });
-            document.getElementById('taobao-save-product-btn').addEventListener('click', this.saveProduct.bind(this));
-            document.getElementById('taobao-cancel-product-editor-btn').addEventListener('click', () => {
-                document.getElementById('taobao-product-editor-modal').classList.remove('visible');
-            });
-             document.getElementById('taobao-close-product-detail-btn').addEventListener('click', () => {
-                document.getElementById('taobao-product-detail-modal').classList.remove('visible');
+            bindModalAction('taobao-add-product-manual-btn', 'click', () => { document.getElementById('taobao-add-product-choice-modal').classList.remove('visible'); this.openProductEditor(); });
+            bindModalAction('taobao-cancel-add-choice-btn', 'click', () => document.getElementById('taobao-add-product-choice-modal').classList.remove('visible'));
+            bindModalAction('taobao-save-product-btn', 'click', this.saveProduct.bind(this));
+            bindModalAction('taobao-cancel-product-editor-btn', 'click', () => document.getElementById('taobao-product-editor-modal').classList.remove('visible'));
+            bindModalAction('taobao-close-product-detail-btn', 'click', () => document.getElementById('taobao-product-detail-modal').classList.remove('visible'));
+            bindModalAction('taobao-detail-add-to-cart-btn', 'click', async (e) => {
+                 const productId = parseInt(e.target.dataset.productId);
+                 if(!isNaN(productId)){
+                     await this.handleAddToCart(productId);
+                     document.getElementById('taobao-product-detail-modal').classList.remove('visible');
+                 }
             });
 
 
             logSuccess("所有事件处理器已绑定");
         },
         
-        // ===================================================================
-        //  3. 核心功能方法
-        // ===================================================================
         open: async function() {
             logInfo("打开桃宝App");
             await this.renderTaobaoProducts();
@@ -471,29 +493,78 @@ if (!window.EPhone) {
         updateCartBadge: async function() {
             const badge = document.getElementById('taobao-cart-item-count-badge');
             if (!badge) return;
-            const items = await this.db.taobaoCart.toArray();
-            const totalCount = items.reduce((sum, item) => sum + item.quantity, 0);
-            if (totalCount > 0) {
-                badge.textContent = totalCount > 99 ? '99+' : totalCount;
-                badge.style.display = 'inline-block';
-            } else {
-                badge.style.display = 'none';
+            try {
+                const items = await this.db.taobaoCart.toArray();
+                const totalCount = items.reduce((sum, item) => sum + (item.quantity || 0), 0);
+                if (totalCount > 0) {
+                    badge.textContent = totalCount > 99 ? '99+' : totalCount;
+                    badge.style.display = 'inline-block';
+                } else {
+                    badge.style.display = 'none';
+                }
+            } catch (error) {
+                logError("更新购物车角标失败:", error);
             }
         },
         
-        // ... 此处省略其他功能函数的实现 (如 renderTaobaoProducts, handleCheckout 等)
-        // 为了简洁，我只实现了你提到的核心问题相关的函数，其他函数可以按照这个模式进行改造
+        handleAddToCart: async function(productId) {
+            try {
+                const existingItem = await this.db.taobaoCart.where('productId').equals(productId).first();
+                if (existingItem) {
+                    await this.db.taobaoCart.update(existingItem.id, { quantity: existingItem.quantity + 1 });
+                } else {
+                    await this.db.taobaoCart.add({ productId: productId, quantity: 1 });
+                }
+                await window.EPhone.showCustomAlert('成功', '宝贝已加入购物车！');
+                await this.updateCartBadge();
+                if (document.getElementById('taobao-cart-view').classList.contains('active')) {
+                    await this.renderTaobaoCart();
+                }
+            } catch(error) {
+                logError("加入购物车失败: ", error);
+                await window.EPhone.showCustomAlert('失败', '加入购物车时发生错误。');
+            }
+        },
+
+        handleChangeCartItemQuantity: async function(cartId, change) {
+            const item = await this.db.taobaoCart.get(cartId);
+            if (!item) return;
+            const newQuantity = item.quantity + change;
+            if (newQuantity <= 0) {
+                await this.handleRemoveFromCart(cartId);
+            } else {
+                await this.db.taobaoCart.update(cartId, { quantity: newQuantity });
+                await this.renderTaobaoCart();
+            }
+        },
+
+        handleRemoveFromCart: async function(cartId) {
+            await this.db.taobaoCart.delete(cartId);
+            await this.renderTaobaoCart();
+        },
         
+        openProductDetail: async function(productId) {
+            const product = await this.db.taobaoProducts.get(productId);
+            if (!product) return;
+            const modal = document.getElementById('taobao-product-detail-modal');
+            const bodyEl = document.getElementById('taobao-product-detail-body');
+            bodyEl.innerHTML = `<img src="${product.imageUrl}" class="product-image" alt="${product.name}"><h2 class="product-name">${product.name}</h2><p class="product-price">¥${product.price.toFixed(2)}</p>`;
+            
+            // 为加入购物车按钮设置正确的product ID
+            document.getElementById('taobao-detail-add-to-cart-btn').dataset.productId = productId;
+
+            modal.classList.add('visible');
+        },
+
         renderTaobaoProducts: async function(category = null) {
             const gridEl = document.getElementById('taobao-product-grid');
             if(!gridEl) return;
             gridEl.innerHTML = '<p>正在加载商品...</p>';
             const allProducts = await this.db.taobaoProducts.toArray();
             if(allProducts.length === 0){
-                gridEl.innerHTML = '<p style="text-align:center; color: var(--text-secondary);">还没有商品哦，点击右上角+添加吧！</p>';
+                gridEl.innerHTML = '<p style="text-align:center; color: var(--text-secondary); padding-top: 50px;">还没有商品哦，点击右上角+添加吧！</p>';
                 return;
             }
-            // 简单渲染，可以后续扩展
             gridEl.innerHTML = allProducts.map(p => `
                 <div class="product-card" data-product-id="${p.id}">
                     <img src="${p.imageUrl}" class="product-image" alt="${p.name}">
@@ -501,18 +572,57 @@ if (!window.EPhone) {
                         <div class="product-name">${p.name}</div>
                         <div class="product-price">${p.price.toFixed(2)}</div>
                     </div>
+                    <button class="add-cart-btn" data-product-id="${p.id}">+</button>
                 </div>
             `).join('');
+            
+            // 为每个商品卡片添加长按监听
+            gridEl.querySelectorAll('.product-card').forEach(card => {
+                const productId = parseInt(card.dataset.productId);
+                if (!isNaN(productId)) {
+                    addLongPressListener(card, () => this.showProductActions(productId));
+                }
+            });
+        },
+        
+        showProductActions: async function(productId) {
+            // 这是一个示例，你可以扩展这个菜单
+            const confirmed = await window.EPhone.showCustomConfirm('商品操作', '要编辑还是删除这个商品？', {confirmText: "编辑", cancelText: "删除"});
+            if (confirmed) {
+                this.openProductEditor(productId);
+            } else {
+                // 这里可以添加删除逻辑
+                await this.db.taobaoProducts.delete(productId);
+                await this.renderTaobaoProducts();
+                await window.EPhone.showCustomAlert("成功", "商品已删除");
+            }
         },
 
         openAddProductChoiceModal: function() {
-            document.getElementById('taobao-add-product-choice-modal').classList.add('visible');
+            const modal = document.getElementById('taobao-add-product-choice-modal');
+            if(modal) modal.classList.add('visible');
         },
         
         openProductEditor: async function(productId = null) {
             this.state.currentEditingProductId = productId;
             const modal = document.getElementById('taobao-product-editor-modal');
-            //... (此处省略填充表单的逻辑)
+            const titleEl = document.getElementById('taobao-product-editor-title');
+            const nameInput = document.getElementById('taobao-product-name-input');
+            const priceInput = document.getElementById('taobao-product-price-input');
+            const imageInput = document.getElementById('taobao-product-image-input');
+            const categoryInput = document.getElementById('taobao-product-category-input');
+
+            if (productId) {
+                titleEl.textContent = '编辑商品';
+                const product = await this.db.taobaoProducts.get(productId);
+                nameInput.value = product.name;
+                priceInput.value = product.price;
+                imageInput.value = product.imageUrl;
+                categoryInput.value = product.category || '';
+            } else {
+                titleEl.textContent = '添加新商品';
+                nameInput.value = ''; priceInput.value = ''; imageInput.value = ''; categoryInput.value = '';
+            }
             modal.classList.add('visible');
         },
 
@@ -520,6 +630,7 @@ if (!window.EPhone) {
             const name = document.getElementById('taobao-product-name-input').value.trim();
             const price = parseFloat(document.getElementById('taobao-product-price-input').value);
             let imageUrl = document.getElementById('taobao-product-image-input').value.trim();
+            const category = document.getElementById('taobao-product-category-input').value.trim();
 
             if (!name || isNaN(price)) {
                  await window.EPhone.showCustomAlert('错误', '商品名称和价格不能为空！');
@@ -529,31 +640,79 @@ if (!window.EPhone) {
                 imageUrl = 'https://i.postimg.cc/W4svy4Hm/Image-1760206134285.jpg'; // 默认图片
             }
 
-            const productData = { name, price, imageUrl };
+            const productData = { name, price, imageUrl, category, reviews: [] };
             if (this.state.currentEditingProductId) {
                 await this.db.taobaoProducts.update(this.state.currentEditingProductId, productData);
             } else {
                 await this.db.taobaoProducts.add(productData);
             }
             document.getElementById('taobao-product-editor-modal').classList.remove('visible');
-            await this.renderTaobaoProducts(); // 数据驱动UI：保存后立刻刷新
+            await this.renderTaobaoProducts(); 
         },
         
-        // 伪函数占位
-        renderTaobaoCart: async function(){},
-        renderTaobaoOrders: async function(){},
-        handleCheckout: async function(){},
+        renderTaobaoCart: async function(){
+            const listEl = document.getElementById('taobao-cart-item-list');
+            if(!listEl) return;
+            const cartItems = await this.db.taobaoCart.toArray();
+            if(cartItems.length === 0){
+                listEl.innerHTML = '<p style="text-align:center; color: var(--text-secondary); padding: 50px 0;">购物车空空如也~</p>';
+                document.getElementById('taobao-cart-checkout-bar').style.display = 'none';
+                return;
+            }
+            document.getElementById('taobao-cart-checkout-bar').style.display = 'flex';
+            
+            let totalPrice = 0;
+            let totalItems = 0;
+            listEl.innerHTML = '';
+            
+            for (const item of cartItems) {
+                const product = await this.db.taobaoProducts.get(item.productId);
+                if (!product) continue;
+                totalItems += item.quantity;
+                totalPrice += product.price * item.quantity;
+                const itemEl = document.createElement('div');
+                itemEl.className = 'cart-item';
+                itemEl.innerHTML = `
+                    <img src="${product.imageUrl}" class="product-image">
+                    <div class="cart-item-info">
+                        <div class="product-name">${product.name}</div>
+                        <div class="product-price">¥${product.price.toFixed(2)}</div>
+                    </div>
+                    <div class="quantity-controls">
+                        <button class="quantity-decrease" data-cart-id="${item.id}" ${item.quantity <= 1 ? 'disabled' : ''}>-</button>
+                        <span>${item.quantity}</span>
+                        <button class="quantity-increase" data-cart-id="${item.id}">+</button>
+                    </div>
+                    <button class="delete-cart-item-btn" data-cart-id="${item.id}">×</button>
+                `;
+                listEl.appendChild(itemEl);
+            }
+            document.getElementById('taobao-cart-total-price').textContent = `¥ ${totalPrice.toFixed(2)}`;
+            document.getElementById('taobao-checkout-btn').textContent = `结算(${totalItems})`;
+            document.getElementById('taobao-checkout-btn').dataset.totalPrice = totalPrice;
+        },
+        renderTaobaoOrders: async function(){
+             const listEl = document.getElementById('taobao-order-list');
+             listEl.innerHTML = '<p style="text-align:center; color: var(--text-secondary); padding: 50px 0;">你还没有任何订单哦~</p>';
+        },
+        handleCheckout: async function(){
+             await window.EPhone.showCustomAlert("提示", "结算功能正在开发中...");
+        },
+        clearTaobaoProducts: async function(){
+            const confirmed = await window.EPhone.showCustomConfirm('确认操作', '确定要清空所有商品和购物车吗？此操作无法恢复。');
+            if(confirmed){
+                await this.db.taobaoProducts.clear();
+                await this.db.taobaoCart.clear();
+                await this.renderTaobaoProducts();
+                await this.updateCartBadge();
+                await this.renderTaobaoCart();
+                await window.EPhone.showCustomAlert("成功", "所有商品和购物车已被清空。");
+            }
+        },
     };
 
-    // ===================================================================
-    //  4. 模块导出
-    // ===================================================================
     function checkEnvironment() {
-        if (typeof window.EPhone !== 'undefined' && typeof window.EPhone.showScreen === 'function' && window.EPhone.api) {
-            TaobaoApp.isRunningInEPhone = true;
-        } else {
-            TaobaoApp.isRunningInEPhone = false;
-        }
+        TaobaoApp.isRunningInEPhone = typeof window.EPhone !== 'undefined' && typeof window.EPhone.showScreen === 'function' && window.EPhone.api;
     }
 
     window.TaobaoAppModule = {
@@ -561,29 +720,27 @@ if (!window.EPhone) {
             if (TaobaoApp.isInitialized) return;
             checkEnvironment();
             TaobaoApp.initInternal();
-            TaobaoApp.integrateWithHost();
-            TaobaoApp.isInitialized = true;
-            logSuccess("Taobao App Module Initialized.");
-        },
-        // 提供一个外部接口用于在独立模式下测试交易
-        addTransactionForStandalone: async function(amount, description) {
-            if (!TaobaoApp.isInitialized) return;
-            await TaobaoApp.db.userWalletTransactions.add({ amount: amount, description: description, timestamp: Date.now() });
-            if (!TaobaoApp.isRunningInEPhone) {
-                await TaobaoApp.renderBalanceDetails();
+            if(TaobaoApp.isRunningInEPhone){
+                TaobaoApp.integrateWithHost();
             }
+            TaobaoApp.isInitialized = true;
         }
     };
     
     // 如果不在EPhone环境中，则在DOM加载完成后自动初始化以便独立测试
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', () => {
-            if (!window.EPhone || !window.EPhone.api) { // 再次检查，确保主程序没加载
+            if (!TaobaoApp.isRunningInEPhone) {
                  window.TaobaoAppModule.init();
                  // 独立模式下直接显示
                  window.EPhone.showScreen('taobao-screen');
             }
         });
+    } else {
+        if (!TaobaoApp.isRunningInEPhone) {
+            window.TaobaoAppModule.init();
+            window.EPhone.showScreen('taobao-screen');
+        }
     }
 
 })(window);
