@@ -65,6 +65,11 @@ if (!window.EPhone) {
 (function(window) {
     'use strict';
 
+        // ▼▼▼ 【核心新增：日志工具】 ▼▼▼
+        const logInfo = (message) => console.log(`%c🚀 [桃宝App] ${message}`, 'color: #2980b9; font-weight: bold;');
+        const logSuccess = (message) => console.log(`%c✅ [桃宝App] ${message}`, 'color: #27ae60;');
+        // ▲▲▲ 【新增结束】 ▲▲▲
+    
     // ===================================================================
     //  1. Main Controller Object
     // ===================================================================
@@ -506,6 +511,9 @@ if (!window.EPhone) {
         },
 
         initInternal: async function() {
+            // ▼▼▼ 【核心新增：日志】 ▼▼▼
+            logInfo("开始初始化...");
+
             this.db = new Dexie('TaobaoDB');
             this.db.version(1).stores({
                 taobaoProducts: '++id, name, category', 
@@ -513,12 +521,15 @@ if (!window.EPhone) {
                 taobaoCart: '++id, productId',
                 userWalletTransactions: '++id, timestamp' 
             });
+            logSuccess("数据库已连接");
+
             this.injectTaobaoStyles();
             this.createTaobaoHTML();
             this.bindEvents();
             await this.renderTaobaoProducts();
             await this.renderBalanceDetails();
             await this.updateCartBadge();
+            logSuccess("初始数据已渲染");
         },
 
         integrateWithHost: function() {
@@ -533,8 +544,9 @@ if (!window.EPhone) {
                     this.open();
                     window.EPhone.showScreen(this.identity.screenId);
                 });
+                logSuccess("已与宿主环境集成 (图标已绑定)");
             } else {
-                console.warn(`TaobaoApp: Placeholder element '#taobao-app-placeholder' not found in host HTML.`);
+                console.warn(`[桃宝App] 未找到宿主占位符 #taobao-app-placeholder`);
             }
         },
 
@@ -617,6 +629,7 @@ if (!window.EPhone) {
             document.getElementById('taobao-product-search-btn').addEventListener('click', this.handleSearchProductsAI.bind(this));
             document.getElementById('taobao-product-search-input').addEventListener('keypress', (e) => { if (e.key === 'Enter') this.handleSearchProductsAI(); });
             document.getElementById('taobao-logistics-back-btn').addEventListener('click', () => { this.state.logisticsUpdateTimers.forEach(timerId => clearTimeout(timerId)); this.state.logisticsUpdateTimers = []; window.EPhone.showScreen('taobao-screen'); });
+            logSuccess("所有事件处理器已绑定");
         },
 
         // ===================================================================
@@ -1036,7 +1049,7 @@ if (!window.EPhone) {
     };
 
     // ===================================================================
-    //  Helper Functions
+    //  Helper Functions & Public API
     // ===================================================================
     function addLongPressListener(element, callback) {
         let pressTimer;
@@ -1058,9 +1071,6 @@ if (!window.EPhone) {
         }
     }
 
-    // ===================================================================
-    //  Helper Functions & Public API
-    // ===================================================================
     window.TaobaoAppModule = {
         init: function() {
             if (TaobaoApp.isInitialized) return;
@@ -1069,7 +1079,7 @@ if (!window.EPhone) {
             TaobaoApp.isInitialized = true;
             console.log("Taobao App Module Initialized.");
         },
-        //addTransactionForStandalone: async function(amount, description) {
+        addTransactionForStandalone: async function(amount, description) {
             if (!TaobaoApp.isInitialized) return;
             await TaobaoApp.db.userWalletTransactions.add({ amount: amount, description: description, timestamp: Date.now() });
             if (!TaobaoApp.isRunningInEPhone) {
