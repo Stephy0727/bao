@@ -23,6 +23,7 @@
 //     }
 //
 // ===================================================================================
+// ▼▼▼ 【核心修复1：修正并简化模拟环境】 ▼▼▼
 let standaloneWalletBalance = 262.00; // 初始化一个余额，方便测试
 
 // --- EPhone API STUB ---
@@ -37,17 +38,19 @@ if (!window.EPhone) {
             getWalletBalance: () => {
                 return standaloneWalletBalance;
             },
-            // ▼▼▼ 【核心修复 1：让模拟API负责原子操作】 ▼▼▼
-            // 这个函数现在是模拟环境下“事实的唯一来源”
+            // 让 updateWallet 变成 async 函数，并承担起“记账”的责任
             updateWallet: async (amount, description) => {
                 console.log(`Standalone Mode: Wallet updated by ${amount}. Reason: ${description}`);
                 standaloneWalletBalance += amount;
+
+                // 【关键】模拟后端操作：钱包系统更新后，会产生一条交易记录。
+                // 我们通过调用模块的公共方法，将这条记录“推送”给桃宝App。
                 if (window.TaobaoAppModule) {
-                    await window.TaobaoAppModule.addTransaction(amount, description);
-                }                
+                    await window.TaobaoAppModule.addTransactionRecord(amount, description);
+                }
+                
                 return Promise.resolve();
             },
-            // ▲▲▲ 【修复结束】 ▲▲▲
             getChat: (chatId) => null,
             openCharSelector: (title) => {
                 console.log("Standalone Mode: Character selector opened.");
@@ -61,7 +64,7 @@ if (!window.EPhone) {
         }
     };
 }
-
+// ▲▲▲ 【修复结束】 ▲▲▲
 // -----------------------
 
 (function(window) {
@@ -580,9 +583,18 @@ if (!window.EPhone) {
                     const amountStr = await window.EPhone.showCustomPrompt('充值', '请输入充值金额', '100');
                     const amount = parseFloat(amountStr);
                     if (!isNaN(amount) && amount > 0) {                       
-                         await window.EPhone.api.updateWallet(amount, '用户充值');
-                         await window.EPhone.showCustomAlert('充值成功', `成功充值 ¥${amount.toFixed(2)}！`);
-                         await this.renderBalanceDetails();
+                        // ▼▼▼ 【核心修复2：简化充值逻辑，职责单一化】 ▼▼▼
+                        
+                        // 第1步: 调用API，让它处理所有后台逻辑 (更新余额+记账)。
+                        await window.EPhone.api.updateWallet(amount, '用户充值');
+                        
+                        // 第2步: 给用户反馈。
+                        await window.EPhone.showCustomAlert('充值成功', `成功充值 ¥${amount.toFixed(2)}！`);
+                        
+                        // 第3步: 所有后台操作都已完成，现在只需刷新UI即可。
+                        await this.renderBalanceDetails();
+                        
+                        // ▲▲▲ 【修复结束】 ▲▲▲
                     }
                 }
                 // ▲▲▲ 【修改结束】 ▲▲▲
@@ -1065,14 +1077,17 @@ if (!window.EPhone) {
             TaobaoApp.isInitialized = true;
             console.log("Taobao App Module Initialized.");
         },
-        addTransaction: async function(amount, description) {
+        // ▼▼▼ 【核心修复3：提供一个清晰的公共接口用于接收交易记录】 ▼▼▼
+        addTransactionRecord: async function(amount, description) {
             if (!TaobaoApp.isInitialized) return;
             await TaobaoApp.db.userWalletTransactions.add({
                 amount: amount,
                 description: description,
                 timestamp: Date.now()
             });
+            logSuccess(`交易记录已添加: ${description} (${amount})`);
         }
+        // ▲▲▲ 【修复结束】 ▲▲▲
     };
     
     checkEnvironment();
@@ -1083,3 +1098,4 @@ if (!window.EPhone) {
     }
 
 })(window);
+
