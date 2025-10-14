@@ -611,15 +611,28 @@ if (!window.EPhone) {
                 if (target.id === 'taobao-top-up-btn') {
                     const amountStr = await window.EPhone.showCustomPrompt('充值', '请输入充值金额', '100');
                     const amount = parseFloat(amountStr);
-                    if (!isNaN(amount) && amount > 0) {
-                        await window.EPhone.api.updateWallet(amount, '用户充值');
-                        await this.db.userWalletTransactions.add({
-                            amount: amount,
-                            description: '用户充值',
-                            timestamp: Date.now()
-                        });
-                        await window.EPhone.showCustomAlert('充值成功', `成功充值 ¥${amount.toFixed(2)}！`);
-                        await this.renderBalanceDetails();
+                    if (amountStr && !isNaN(amount) && amount > 0) {
+                        
+                        // 【核心修复】定义一个回调函数，它包含所有后续操作
+                        const updateCallback = async (newBalance) => {
+                            // 第2步: 在本地数据库中创建交易记录
+                            await this.db.userWalletTransactions.add({
+                                amount: amount,
+                                description: '用户充值',
+                                timestamp: Date.now()
+                            });
+                
+                            // 第3步: 所有操作完成后，再刷新UI
+                            // 这一次，renderBalanceDetails 会读取到 EPhone 保证已经更新了的余额
+                            await this.renderBalanceDetails();
+                            
+                            // 第4步: 给用户反馈
+                            await window.EPhone.showCustomAlert('充值成功', `成功充值 ¥${amount.toFixed(2)}！`);
+                            logSuccess(`充值成功，新余额: ${newBalance.toFixed(2)}`);
+                        };
+                
+                        // 第1步: 调用API更新全局余额，并把回调函数传进去
+                        await window.EPhone.api.updateWallet(amount, '用户充值', updateCallback);
                     }
                 }
 
@@ -937,13 +950,18 @@ if (!window.EPhone) {
 
             const confirmed = await window.EPhone.showCustomConfirm('确认支付', `将从您的余额中扣除 ¥${totalPrice.toFixed(2)}，确定吗？`);
             if (confirmed) {
-                // 1. 更新数据 - 钱包
-                await window.EPhone.api.updateWallet(-totalPrice, '桃宝购物');
-                await this.db.userWalletTransactions.add({
-                    amount: -totalPrice,
-                    description: '桃宝购物',
-                    timestamp: Date.now()
-                });
+                // 【核心修复】定义回调
+    const checkoutCallback = async () => {
+        const cartItems = await this.db.taobaoCart.toArray();
+        await this.createOrdersFromCart(cartItems);
+        await this.clearTaobaoCart();
+        await window.EPhone.showCustomAlert('支付成功', '宝贝已成功购买！');
+        this.switchTaobaoView('taobao-orders-view');
+    };
+    
+    // 调用API，传入回调
+    await window.EPhone.api.updateWallet(-totalPrice, '桃宝购物', checkoutCallback);
+}
 
                 // 2. 更新数据 - 订单和购物车
                 const cartItems = await this.db.taobaoCart.toArray();
