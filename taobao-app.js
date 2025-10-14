@@ -33,10 +33,16 @@ if (!window.EPhone) {
         showScreen: (screenId) => { console.log(`Standalone Mode: Show screen ${screenId}`); },
         showCustomAlert: (title, message) => alert(`${title}\n${message}`),
         showCustomConfirm: (title, message) => Promise.resolve(confirm(`${title}\n${message}`)),
+        // 【新增】为充值功能添加 showCustomPrompt 的模拟实现
+        showCustomPrompt: (title, message, defaultValue) => Promise.resolve(prompt(message, defaultValue)),
         api: {
             getWalletBalance: () => 1000, // Standalone default
             updateWallet: (amount, description) => {
                 console.log(`Standalone Mode: Wallet updated by ${amount}. Reason: ${description}`);
+                // 在独立模式下，模拟一个本地交易记录
+                if (window.TaobaoAppModule) {
+                   window.TaobaoAppModule.addTransactionForStandalone(amount, description);
+                }
                 return Promise.resolve();
             },
             getChat: (chatId) => null, // Standalone cannot get chat info
@@ -47,7 +53,9 @@ if (!window.EPhone) {
             sendMessage: (chatId, messageObject) => {
                 console.log(`Standalone Mode: Message sent to ${chatId}:`, messageObject);
                 return Promise.resolve();
-            }
+            },
+            // 【新增】为送礼功能添加 getUserNickname 的模拟实现
+            getUserNickname: () => "我"
         }
     };
 }
@@ -424,7 +432,7 @@ if (!window.EPhone) {
                                 <h2 id="taobao-user-balance-display">¥ 0.00</h2>
                                 <button id="taobao-top-up-btn" class="form-button">给钱包充点钱</button>
                             </div>
-                            <div id="taobao-balance-details-list" class="order-list" style="padding: 0 15px;"></div>
+                            <div id="taobao-balance-details-list"></div>
                         </div>
                     </div>
                 </div>
@@ -530,6 +538,7 @@ if (!window.EPhone) {
 
             // 4. Initial Render
             await this.renderTaobaoProducts();
+            // 【核心修复】在这里调用我们即将添加的新函数
             await this.renderBalanceDetails();
             await this.updateCartBadge();
         },
@@ -563,6 +572,8 @@ if (!window.EPhone) {
 
         bindEvents: function() {
             // Main App screen event delegation
+            // 【核心修复】确认这里使用的是箭头函数 `async (e) => { ... }`
+            // 这确保了内部所有的 `this` 都正确指向 `TaobaoApp` 对象。
             document.getElementById('taobao-screen').addEventListener('click', async (e) => {
                 const target = e.target;
 
@@ -614,10 +625,12 @@ if (!window.EPhone) {
                 if (target.id === 'taobao-share-cart-to-char-btn') await this.handleShareCartRequest();
                 if (target.id === 'taobao-buy-for-char-btn') await this.handleBuyForChar();
                 if (target.id === 'taobao-top-up-btn') {
+                    // EPhone.showCustomPrompt 是你主应用提供的API，用于弹出输入框
                     const amountStr = await window.EPhone.showCustomPrompt('充值', '请输入充值金额', '100');
                     const amount = parseFloat(amountStr);
                     if (!isNaN(amount) && amount > 0) {
                         await window.EPhone.api.updateWallet(amount, '用户充值');
+                        // 【核心修复】这里的`this`因为外层是箭头函数，所以指向正确，现在可以成功调用了
                         await this.renderBalanceDetails();
                     }
                 }
@@ -668,6 +681,59 @@ if (!window.EPhone) {
         // ===================================================================
         //  5. Core Taobao Logic
         // ===================================================================
+        
+        // ▼▼▼ 【【【核心修复：新增缺失的函数】】】 ▼▼▼
+        
+        /**
+         * 渲染“我的”页面的余额和交易详情
+         */
+        renderBalanceDetails: async function() {
+            const balanceDisplay = document.getElementById('taobao-user-balance-display');
+            if (!balanceDisplay) return;
+            
+            // 1. 从 EPhone API 获取当前钱包余额
+            const currentBalance = await window.EPhone.api.getWalletBalance();
+            balanceDisplay.textContent = `¥ ${currentBalance.toFixed(2)}`;
+            
+            // 2. 渲染交易记录列表
+            await this.renderWalletTransactions();
+        },
+
+        /**
+         * 渲染钱包交易记录列表
+         */
+        renderWalletTransactions: async function() {
+            const listEl = document.getElementById('taobao-balance-details-list');
+            if (!listEl) return;
+
+            const transactions = await this.db.userWalletTransactions.orderBy('timestamp').reverse().toArray();
+            listEl.innerHTML = '';
+            
+            if(transactions.length === 0) {
+                listEl.innerHTML = '<p style="text-align:center; color: var(--text-secondary);">暂无收支明细</p>';
+                return;
+            }
+
+            transactions.forEach(tx => {
+                const itemEl = document.createElement('div');
+                itemEl.className = 'transaction-item';
+                const isIncome = tx.amount > 0;
+                
+                itemEl.innerHTML = `
+                    <div class="transaction-info">
+                        <div class="description">${tx.description}</div>
+                        <div class="timestamp">${new Date(tx.timestamp).toLocaleString()}</div>
+                    </div>
+                    <div class="transaction-amount ${isIncome ? 'income' : 'expense'}">
+                        ${isIncome ? '+' : '-'} ¥${Math.abs(tx.amount).toFixed(2)}
+                    </div>
+                `;
+                listEl.appendChild(itemEl);
+            });
+        },
+
+        // ▲▲▲ 【【【修复结束】】】 ▲▲▲
+
         logisticsTimelineTemplate: [
             { text: '您的订单已提交', delay: 1000 * 2 },
             { text: '付款成功，等待商家打包', delay: 1000 * 10 },
@@ -734,7 +800,6 @@ if (!window.EPhone) {
                     </div>
                     <button class="add-cart-btn" data-product-id="${product.id}">+</button>
                 `;
-                // We are using a self-contained long press listener now
                 addLongPressListener(card, () => this.showProductActions(product.id));
                 gridEl.appendChild(card);
             });
@@ -952,10 +1017,6 @@ if (!window.EPhone) {
             }
         },
         
-        // ... (The rest of the JS functions will be here, adapted as methods of TaobaoApp)
-        // ... handleShareCartRequest, handleBuyForChar, AI functions, etc. ...
-        // ... All adapted to use `this.db` and `window.EPhone` API calls.
-        
         handleShareCartRequest: async function() {
             const cartItems = await this.db.taobaoCart.toArray();
             if (cartItems.length === 0) return;
@@ -1054,7 +1115,7 @@ if (!window.EPhone) {
             }));
             await this.db.taobaoOrders.bulkAdd(orders);
         },
-        // ... more functions to be added here
+
         openAddProductChoiceModal: function() {
             document.getElementById('taobao-add-product-choice-modal').classList.add('visible');
         },
@@ -1106,12 +1167,6 @@ if (!window.EPhone) {
             document.getElementById('taobao-product-editor-modal').classList.remove('visible');
             await this.renderTaobaoProducts(this.state.currentTaobaoCategory);
         },
-
-        //... more functions ...
-        // [NOTE: For brevity, the full implementation of every single function is summarized.
-        // The final generated code will contain the complete logic for all functions like
-        // handleAddFromLink, handleGenerateProductsAI, showProductActions, renderBalanceDetails,
-        // openLogisticsView, etc., all correctly adapted.]
     };
 
     // ===================================================================
@@ -1150,6 +1205,19 @@ if (!window.EPhone) {
             TaobaoApp.integrateWithHost();
             TaobaoApp.isInitialized = true;
             console.log("Taobao App Module Initialized.");
+        },
+        // 【新增】为独立模式提供一个添加交易记录的接口
+        addTransactionForStandalone: async function(amount, description) {
+            if (!TaobaoApp.isInitialized) return;
+            await TaobaoApp.db.userWalletTransactions.add({
+                amount: amount,
+                description: description,
+                timestamp: Date.now()
+            });
+            // 在独立模式下，手动刷新余额显示
+            if (!TaobaoApp.isRunningInEPhone) {
+                await TaobaoApp.renderBalanceDetails();
+            }
         }
     };
     
