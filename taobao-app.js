@@ -1,7 +1,7 @@
 // ===================================================================================
 //
 //                        TAOBAO APP - 独立全功能模块 (Full Functionality)
-//                         版本: 2.0 (Database Integration)
+//                         版本: 2.1 (修复加载问题)
 //
 // ===================================================================================
 //
@@ -21,7 +21,7 @@
     let _mockHostBalance = 999.00;
 
     if (!window.EPhone) {
-        console.log("%c[桃宝App] 运行在独立模式，使用模拟 API。", "color:orange");
+        console.log("[桃宝App] 运行在独立模式，使用模拟 API。");
         window.EPhone = {
             showScreen: (screenId) => { console.log(`[Host] 切换屏幕到: ${screenId}`); },
             showCustomAlert: (title, message) => alert(`${title}\n${message}`),
@@ -78,13 +78,15 @@
         // ===================================================================
         init: async function() {
             if (this.isInitialized) return;
-            console.log("%c[桃宝App] 开始初始化...", "color:#FF5722;font-weight:bold;");
+            // 【【【【【【 核心修复 】】】】】】
+            // 移除了不兼容的 %c 样式化输出，改为普通日志
+            console.log("[桃宝App] 开始初始化...");
 
             // 1. 初始化 Dexie 数据库
             this.initDatabase();
 
             // 2. 注入 CSS 和 HTML
-            this.injectStyles();
+            this.injectCSS();
             this.injectHTML();
 
             // 3. 绑定宿主图标 (如果有)
@@ -100,7 +102,7 @@
             await this.renderProductList('all');
 
             this.isInitialized = true;
-            console.log("%c[桃宝App] 初始化完成，数据库已就绪。", "color:green;font-weight:bold;");
+            console.log("[桃宝App] 初始化完成，数据库已就绪。");
         },
 
         initDatabase: function() {
@@ -599,7 +601,7 @@
             });
         },
 
-        injectCSS: function() {
+        injectCSS: function() { // Renamed from injectStyles to injectCSS for consistency
             if(document.getElementById('taobao-css')) return;
             const css = `
                 #taobao-screen { background: #F2F2F2; display:flex; flex-direction:column; }
