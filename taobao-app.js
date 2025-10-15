@@ -1365,21 +1365,67 @@
         console.log('🚀 Taobao App 初始化完成');
     }
 
-    // ============================================
-    // 第五部分: 暴露全局接口
-    // ============================================
-    window.launchTaobaoApp = function() {
+    // ▼▼▼ 【请用这整块全新的、已修复的代码】替换掉 taobaoApp.js 文件末尾的旧代码 ▼▼▼
+
+    // 暴露一个启动器给外部的 showScreen 函数调用
+    window.showTaobaoAppScreen = function() {
         const container = document.getElementById('taobao-app-container');
         if (container) {
-            container.style.display = 'block';
-            // 每次启动时都刷新一下数据
+            container.classList.add('active'); // 使用 classList.add('active') 来显示
+            // 每次启动时依然可以刷新数据
             updateUserBalanceDisplay();
             renderTaobaoProducts();
             updateCartBadge();
-            // 默认显示首页
             switchTaobaoView('products-view');
         }
     };
+
+    /**
+     * 主初始化函数 (这个函数保持不变，但我们把CSS和返回按钮的修改逻辑移到这里)
+     */
+    async function initTaobaoApp() {
+        injectTaobaoStyles();
+        createTaobaoHTML();
+        
+        // --- 核心修复 1: 将CSS修改逻辑移到这里 ---
+        // 在 inject 和 create 都执行完毕后，我们100%确定这些元素已经存在于DOM中
+        const styleTag = document.getElementById('taobao-app-styles');
+        if (styleTag) {
+            // 将主容器的样式规则修改为需要 .screen 和 .active 才能显示
+            // 这样它就能被外部的 showScreen() 函数控制了
+            styleTag.textContent = styleTag.textContent.replace(
+                '#taobao-app-container {', 
+                '#taobao-app-container.screen {'
+            ).replace(
+                'display: none;',
+                '' // 移除 display: none，完全交由 active 类控制
+            );
+        }
+
+        // --- 核心修复 2: 将返回按钮的事件绑定也移到这里 ---
+        const mainBackButton = document.getElementById('taobao-main-back-btn');
+        if(mainBackButton) {
+            // 注意：这里我们假设全局存在一个 showScreen 函数
+            // 点击返回按钮时，调用外部的 showScreen 来返回主屏幕
+            mainBackButton.onclick = () => window.showScreen('home-screen');
+        }
+
+        // 绑定所有内部的事件监听器
+        bindEventListeners();
+        setupDatabase();
+        
+        // 加载初始数据和UI (这部分逻辑保持不变)
+        await updateUserBalanceDisplay();
+        await renderTaobaoProducts();
+        await updateCartBadge();
+        
+        console.log('🚀 Taobao App 初始化完成 (showScreen 兼容模式)');
+    }
+
+    // ============================================
+    // 第五部分: 暴露全局接口 (现在只负责触发初始化)
+    // ============================================
+    // 我们不再直接暴露启动函数，而是让脚本自动初始化
     
     // 自动初始化
     if (document.readyState === 'loading') {
@@ -1389,6 +1435,8 @@
     }
 
     window.taobaoAppInitialized = true;
-    console.log('📦 Taobao App 模块已加载');
+    console.log('📦 Taobao App 模块已加载 (showScreen 兼容模式)');
 
 })(window);
+
+// ▲▲▲ 替换到这里结束 ▲▲▲
