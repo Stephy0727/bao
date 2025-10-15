@@ -1,10 +1,6 @@
 // ==========================================
-// Taobao App - 独立JS整合文件 (防冲突隔离版)
-// 版本: 1.1
-// 使用方式:
-// 1. 在HTML中引入 Dexie.js: <script src="https://unpkg.com/dexie@latest/dist/dexie.js"></script>
-// 2. 在HTML中引入此文件: <script src="app.js" defer></script>
-// 3. 在需要启动应用的地方调用: window.launchTaobaoApp()
+// Taobao App - 独立JS整合文件 (防冲突隔离版 - V1.2 修复版)
+// 修复内容: 修复了 updateCartBadge 中 Dexie.js 的使用错误
 // ==========================================
 
 (function (window) {
@@ -22,20 +18,6 @@
         currentEditingProductId: null,
     };
     
-    // 物流时间线模板 (delay单位是毫秒)
-    const logisticsTimelineTemplate = [
-        { text: '您的订单已提交', delay: 1000 * 2 },
-        { text: '付款成功，等待商家打包', delay: 1000 * 10 },
-        { text: '【{city}仓库】已打包，等待快递揽收', delay: 1000 * 30 },
-        { text: '【{city}快递】已揽收', delay: 1000 * 60 },
-        { text: '快件已到达【{city}分拨中心】', delay: 1000 * 120 },
-        { text: '【{city}分拨中心】已发出，下一站【{next_city}】', delay: 1000 * 240 },
-        { text: '快件已到达【{user_city}转运中心】', delay: 1000 * 360 },
-        { text: '快件正在派送中，派送员：兔兔快递员，电话：123-4567-8910', delay: 1000 * 420 },
-        { text: '您的快件已签收，感谢您在桃宝购物，期待再次为您服务！', delay: 1000 * 480 },
-    ];
-    let logisticsUpdateTimers = [];
-
     // ============================================
     // 第一部分: CSS样式注入
     // ============================================
@@ -52,71 +34,77 @@
                 --border-color: #e0e0e0;
                 --secondary-bg: #ffffff;
                 --text-secondary: #555;
+                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+                color: #333;
+                position: fixed;
+                top: 0; left: 0; width: 100%; height: 100%;
+                z-index: 2000; /* 确保在最上层 */
+                pointer-events: none; /* 默认不阻挡点击，内部screen显示时才阻挡 */
             }
 
-            #${ROOT_ID} #tb-taobao-screen, #${ROOT_ID} #tb-logistics-screen {
+            #${ROOT_ID} .screen {
                 display: none; /* Default to hidden */
                 flex-direction: column;
-                position: fixed;
-                top: 0;
-                left: 0;
-                width: 100%;
-                height: 100%;
-                z-index: 999;
+                position: absolute;
+                top: 0; left: 0; width: 100%; height: 100%;
                 background-color: #f0f2f5;
+                pointer-events: auto; /* 屏幕显示时恢复点击 */
             }
 
             #${ROOT_ID} .header {
                 display: flex;
                 align-items: center;
                 justify-content: space-between;
-                padding: 10px 15px;
-                background-color: var(--secondary-bg, #fff);
-                border-bottom: 1px solid var(--border-color, #e0e0e0);
+                padding: 15px;
+                padding-top: calc(15px + env(safe-area-inset-top)); /* 适配刘海屏 */
+                background-color: var(--secondary-bg);
+                border-bottom: 1px solid var(--border-color);
                 flex-shrink: 0;
-            }
-
-            #${ROOT_ID} .header .back-btn {
-                font-size: 24px;
-                font-weight: bold;
-                cursor: pointer;
-                width: 30px;
-            }
-            
-            #${ROOT_ID} .header span:nth-child(2) {
                 font-size: 18px;
                 font-weight: 600;
             }
 
+            #${ROOT_ID} .header .back-btn {
+                font-size: 24px;
+                cursor: pointer;
+                width: 30px;
+                display: flex; align-items: center;
+            }
+            
             #${ROOT_ID} .header .header-actions {
                 display: flex;
                 gap: 15px;
                 align-items: center;
-                width: 60px;
-                justify-content: flex-end;
             }
             
             #${ROOT_ID} .header .action-btn {
                 cursor: pointer;
-                font-size: 24px;
+                font-size: 22px;
+                color: #FF5722;
             }
             
             #${ROOT_ID} .list-container {
                 flex: 1;
                 overflow-y: auto;
+                -webkit-overflow-scrolling: touch;
             }
 
             #${ROOT_ID} .form-button {
-                padding: 10px 20px;
-                border-radius: 20px;
+                width: 100%;
+                padding: 12px;
+                background-color: #FF5722;
+                color: white;
                 border: none;
-                font-weight: 500;
+                border-radius: 20px;
+                font-size: 16px;
+                font-weight: 600;
                 cursor: pointer;
             }
-
-            /* --- “桃宝”App 整体布局 --- */
-            #${ROOT_ID} #tb-taobao-screen {
-                background-color: #f0f2f5;
+            
+            #${ROOT_ID} .form-button-secondary {
+                background-color: #fff;
+                color: #FF5722;
+                border: 1px solid #FF5722;
             }
 
             /* 顶部页签 */
@@ -130,7 +118,7 @@
                 flex: 1;
                 padding: 12px 0;
                 text-align: center;
-                font-weight: 500;
+                font-size: 14px;
                 color: var(--text-secondary);
                 border: none;
                 background: none;
@@ -138,7 +126,8 @@
                 position: relative;
             }
             #${ROOT_ID} .taobao-tab.active {
-                color: #FF5722; /* 淘宝橙 */
+                color: #FF5722;
+                font-weight: 600;
             }
             #${ROOT_ID} .taobao-tab.active::after {
                 content: '';
@@ -146,10 +135,10 @@
                 bottom: 0;
                 left: 50%;
                 transform: translateX(-50%);
-                width: 40px;
+                width: 20px;
                 height: 3px;
                 background-color: #FF5722;
-                border-radius: 1.5px;
+                border-radius: 2px;
             }
 
             /* 内容区域 */
@@ -162,50 +151,57 @@
                 position: absolute;
                 top: 0; left: 0; width: 100%; height: 100%;
                 overflow-y: auto;
+                -webkit-overflow-scrolling: touch;
                 display: none;
-                padding: 15px;
+                flex-direction: column;
+                padding: 10px;
                 box-sizing: border-box;
+                padding-bottom: calc(20px + env(safe-area-inset-bottom));
             }
             #${ROOT_ID} .taobao-view.active {
-                display: block;
+                display: flex;
             }
 
             /* --- 首页/商品视图 --- */
             #${ROOT_ID} #tb-product-category-tabs {
                 display: flex;
-                gap: 10px;
-                margin-bottom: 15px;
+                gap: 8px;
+                margin-bottom: 10px;
                 overflow-x: auto;
-                padding-bottom: 5px; /* for scrollbar */
+                padding: 5px 0;
+                flex-shrink: 0;
                 scrollbar-width: none;
-                -ms-overflow-style: none;
             }
             #${ROOT_ID} #tb-product-category-tabs::-webkit-scrollbar { display: none; }
 
-            #${ROOT_ID} #tb-product-category-tabs .category-tab-btn {
+            #${ROOT_ID} .category-tab-btn {
                 padding: 6px 12px;
                 border-radius: 15px;
-                border: 1px solid var(--border-color);
-                background-color: var(--secondary-bg);
+                font-size: 13px;
+                background-color: #fff;
+                color: #666;
+                border: none;
                 white-space: nowrap;
                 cursor: pointer;
             }
-            #${ROOT_ID} #tb-product-category-tabs .category-tab-btn.active {
+            #${ROOT_ID} .category-tab-btn.active {
                 background-color: #FFEFE9;
                 color: #FF5722;
-                border-color: #FF5722;
+                font-weight: 600;
             }
 
             #${ROOT_ID} .product-grid {
                 display: grid;
                 grid-template-columns: 1fr 1fr;
-                gap: 12px;
+                gap: 10px;
+                align-content: start;
             }
             #${ROOT_ID} .product-card {
-                background-color: var(--secondary-bg);
+                background-color: #fff;
                 border-radius: 8px;
                 overflow: hidden;
-                box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+                display: flex;
+                flex-direction: column;
                 cursor: pointer;
                 position: relative;
             }
@@ -213,457 +209,183 @@
                 width: 100%;
                 aspect-ratio: 1 / 1;
                 object-fit: cover;
-                background-color: #f0f2f5;
+                background-color: #f5f5f5;
             }
             #${ROOT_ID} .product-card .product-info {
                 padding: 8px;
+                flex-grow: 1;
+                display: flex;
+                flex-direction: column;
+                justify-content: space-between;
             }
             #${ROOT_ID} .product-card .product-name {
-                font-size: 14px;
+                font-size: 13px;
+                line-height: 1.4;
+                color: #333;
                 display: -webkit-box;
                 -webkit-line-clamp: 2;
                 -webkit-box-orient: vertical;
                 overflow: hidden;
-                min-height: 2.8em;
+                margin-bottom: 4px;
+            }
+            #${ROOT_ID} .product-card .product-price-row {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
             }
             #${ROOT_ID} .product-card .product-price {
                 font-size: 16px;
-                font-weight: bold;
+                font-weight: 600;
                 color: #FF5722;
-                margin-top: 5px;
             }
             #${ROOT_ID} .product-card .product-price::before {
-                content: '¥';
-                font-size: 12px;
-                margin-right: 2px;
+                content: '¥'; font-size: 12px; margin-right: 1px;
+            }
+            #${ROOT_ID} .add-cart-btn-small {
+                width: 24px; height: 24px;
+                background-color: #FF5722; color: white;
+                border-radius: 50%;
+                display: flex; align-items: center; justify-content: center;
+                font-size: 18px; line-height: 1;
+                cursor: pointer;
             }
 
             /* --- 我的/余额视图 --- */
-            #${ROOT_ID} #tb-user-balance-container {
-                background: linear-gradient(135deg, #FF9A8B 0%, #FF6A88 100%);
+            #${ROOT_ID} #tb-user-balance-card {
+                background: linear-gradient(135deg, #FF6B35, #FF3D00);
                 color: white;
-                padding: 30px 20px;
+                padding: 20px;
                 border-radius: 12px;
-                text-align: center;
-                text-shadow: 0 1px 3px rgba(0,0,0,0.2);
-                margin-bottom: 20px;
+                margin-bottom: 15px;
+                box-shadow: 0 4px 10px rgba(255, 87, 34, 0.3);
             }
-            #${ROOT_ID} #tb-user-balance-container h2 {
-                font-size: 40px;
-                margin: 10px 0 20px 0;
+            #${ROOT_ID} #tb-user-balance-display {
+                font-size: 32px;
+                font-weight: bold;
+                margin: 10px 0 15px 0;
             }
             #${ROOT_ID} #tb-top-up-btn {
-                background-color: rgba(255,255,255,0.9);
-                color: #FF5722;
+                background-color: rgba(255,255,255,0.2);
+                color: white;
+                border: 1px solid rgba(255,255,255,0.5);
+                width: auto; padding: 6px 15px; font-size: 13px;
             }
 
-            /* --- 订单/物流视图 --- */
-            #${ROOT_ID} .order-list {
+            /* --- 订单/物流/明细列表通用 --- */
+            #${ROOT_ID} .common-list {
                 display: flex;
                 flex-direction: column;
-                gap: 15px;
+                gap: 10px;
             }
-            #${ROOT_ID} .order-item {
-                background-color: var(--secondary-bg);
-                border-radius: 8px;
+            #${ROOT_ID} .list-item-card {
+                background-color: #fff;
+                border-radius: 10px;
                 padding: 12px;
-                box-shadow: 0 1px 3px rgba(0,0,0,0.06);
                 display: flex;
-                gap: 12px;
-                cursor: pointer;
+                align-items: center;
+                gap: 10px;
             }
-            #${ROOT_ID} .order-item .product-image {
-                width: 70px;
-                height: 70px;
+            #${ROOT_ID} .list-item-card img {
+                width: 60px; height: 60px;
                 border-radius: 6px;
-                flex-shrink: 0;
-                object-fit: cover;
+                object-fit: cover; background: #f5f5f5;
             }
-            #${ROOT_ID} .order-item .order-info {
-                flex-grow: 1;
-            }
-            #${ROOT_ID} .order-item .product-name {
-                font-weight: 500;
-            }
-            #${ROOT_ID} .order-item .order-status {
-                font-size: 13px;
-                color: #28a745;
-                margin-top: 8px;
-                font-weight: 500;
-            }
-            #${ROOT_ID} .order-item .order-time {
-                font-size: 12px;
-                color: var(--text-secondary);
-                margin-top: 4px;
-            }
+            #${ROOT_ID} .list-item-info { flex-grow: 1; overflow: hidden; }
+            #${ROOT_ID} .list-item-title { font-size: 14px; font-weight: 500; margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            #${ROOT_ID} .list-item-desc { font-size: 12px; color: #999; }
+            #${ROOT_ID} .list-item-right { text-align: right; flex-shrink: 0; }
+            #${ROOT_ID} .list-item-status { font-size: 13px; color: #FF5722; }
+            
+            /* 余额明细特定 */
+            #${ROOT_ID} .transaction-amount { font-size: 16px; font-weight: 600; }
+            #${ROOT_ID} .transaction-amount.income { color: #4CAF50; }
+            #${ROOT_ID} .transaction-amount.expense { color: #333; }
 
             /* --- 搜索栏 --- */
             #${ROOT_ID} .taobao-search-bar {
-                display: flex;
-                gap: 10px;
-                padding: 0 0 15px 0;
+                display: flex; gap: 10px; padding: 5px 0 10px 0; flex-shrink: 0;
             }
             #${ROOT_ID} #tb-product-search-input {
                 flex-grow: 1;
-                border: 1px solid #FF5722;
-                padding: 10px 15px;
-                border-radius: 20px;
+                border: none;
+                background-color: #fff;
+                padding: 8px 15px;
+                border-radius: 18px;
                 font-size: 14px;
                 outline: none;
             }
             #${ROOT_ID} #tb-product-search-btn {
-                background-color: #FF5722;
-                color: white;
-                border: none;
-                border-radius: 20px;
-                padding: 0 20px;
-                font-weight: 500;
+                background-color: #FF5722; color: white;
+                border: none; border-radius: 18px;
+                padding: 0 15px; font-size: 13px;
                 cursor: pointer;
-            }
-
-            /* --- AI生成结果弹窗 --- */
-            #${ROOT_ID} #tb-ai-product-results-grid .product-card {
-                padding-bottom: 40px;
-                cursor: default;
-            }
-            #${ROOT_ID} .add-to-my-page-btn {
-                position: absolute;
-                bottom: 8px;
-                left: 8px;
-                right: 8px;
-                width: calc(100% - 16px);
-                padding: 8px 0;
-                background-color: #4CAF50;
-                color: white;
-                border: none;
-                border-radius: 6px;
-                font-weight: 500;
-                cursor: pointer;
-                transition: background-color 0.2s;
-            }
-            #${ROOT_ID} .add-to-my-page-btn:hover {
-                background-color: #45a049;
-            }
-            #${ROOT_ID} .add-to-my-page-btn:disabled {
-                background-color: #cccccc;
-                cursor: not-allowed;
             }
 
             /* --- 购物车 --- */
-            #${ROOT_ID} .taobao-tab #tb-cart-item-count-badge {
-                position: absolute;
-                top: 5px;
-                right: 15px;
-                min-width: 18px;
-                height: 18px;
-                padding: 0 5px;
-                background-color: #FF5722;
-                color: white;
-                font-size: 11px;
-                border-radius: 9px;
-                line-height: 18px;
-            }
-            #${ROOT_ID} .product-card .add-cart-btn {
-                position: absolute;
-                bottom: 5px;
-                right: 5px;
-                width: 28px;
-                height: 28px;
-                background-color: #FF5722;
-                color: white;
-                border: none;
-                border-radius: 50%;
-                font-size: 18px;
-                line-height: 28px;
-                text-align: center;
-                cursor: pointer;
-                box-shadow: 0 2px 4px rgba(0,0,0,0.2);
-                transition: transform 0.2s;
-            }
-            #${ROOT_ID} .product-card .add-cart-btn:active {
-                transform: scale(0.9);
-            }
-            #${ROOT_ID} #tb-cart-item-list {
-                display: flex;
-                flex-direction: column;
-                gap: 10px;
-                padding-bottom: 70px;
+            #${ROOT_ID} #tb-cart-item-count-badge {
+                position: absolute; top: 8px; right: 20%;
+                background-color: #FF5722; color: white;
+                font-size: 10px; padding: 1px 5px; border-radius: 10px;
+                border: 1px solid #fff;
             }
             #${ROOT_ID} .cart-item {
-                background-color: var(--secondary-bg);
-                border-radius: 8px;
-                padding: 12px;
-                display: flex;
-                align-items: center;
-                gap: 12px;
+                background-color: #fff; border-radius: 10px; padding: 10px;
+                display: flex; align-items: center; gap: 10px; margin-bottom: 10px;
             }
-            #${ROOT_ID} .cart-item .product-image {
-                width: 80px;
-                height: 80px;
-                border-radius: 6px;
-                flex-shrink: 0;
-                cursor: pointer;
-                object-fit: cover;
-            }
-            #${ROOT_ID} .cart-item .cart-item-info {
-                flex-grow: 1;
-                cursor: pointer;
-            }
-            #${ROOT_ID} .cart-item .product-name {
-                font-weight: 500;
-            }
-            #${ROOT_ID} .cart-item .product-price {
-                color: #FF5722;
-                font-weight: bold;
-                margin-top: 8px;
-            }
-            #${ROOT_ID} .cart-item .quantity-controls {
-                display: flex;
-                align-items: center;
-                gap: 8px;
-            }
-            #${ROOT_ID} .cart-item .quantity-controls button {
-                width: 24px;
-                height: 24px;
-                border: 1px solid #ccc;
-                background-color: #f0f0f0;
-                border-radius: 50%;
-                cursor: pointer;
-            }
-            #${ROOT_ID} .cart-item .delete-cart-item-btn {
-                width: 30px;
-                height: 30px;
-                border: none;
-                background: none;
-                color: #999;
-                font-size: 24px;
-                cursor: pointer;
-                flex-shrink: 0;
-            }
+            #${ROOT_ID} .cart-item img { width: 70px; height: 70px; border-radius: 6px; object-fit: cover; }
+            #${ROOT_ID} .cart-item-details { flex-grow: 1; }
+            #${ROOT_ID} .cart-item-title { font-size: 13px; line-height: 1.3; margin-bottom: 5px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+            #${ROOT_ID} .cart-item-bottom { display: flex; justify-content: space-between; align-items: center; }
+            #${ROOT_ID} .cart-item-price { color: #FF5722; font-weight: 600; }
+            
+            #${ROOT_ID} .quantity-control { display: flex; align-items: center; border: 1px solid #eee; border-radius: 4px; }
+            #${ROOT_ID} .quantity-btn { width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; cursor: pointer; background: #f9f9f9; font-size: 16px; color: #666; }
+            #${ROOT_ID} .quantity-num { width: 30px; text-align: center; font-size: 13px; }
+            
             #${ROOT_ID} #tb-cart-checkout-bar {
-                position: absolute;
-                bottom: 0;
-                left: 0;
-                right: 0;
-                z-index: 10;
-                padding: 10px 15px;
-                background-color: var(--secondary-bg);
-                border-top: 1px solid var(--border-color);
-                display: flex;
-                justify-content: space-between;
-                align-items: center;
-                box-sizing: border-box;
+                position: absolute; bottom: 0; left: 0; right: 0;
+                background-color: #fff; border-top: 1px solid #eee;
+                padding: 10px 15px; padding-bottom: calc(10px + env(safe-area-inset-bottom));
+                display: flex; justify-content: space-between; align-items: center;
             }
-            #${ROOT_ID} #tb-cart-checkout-bar .total-price {
-                font-weight: bold;
-            }
-            #${ROOT_ID} #tb-cart-checkout-bar #tb-cart-total-price {
-                color: #FF5722;
-                font-size: 18px;
-            }
-            #${ROOT_ID} #tb-cart-checkout-bar button {
-                color: white;
-                border: none;
-                padding: 10px 20px;
-                border-radius: 20px;
-                font-weight: 500;
-                cursor: pointer;
-            }
-            #${ROOT_ID} #tb-checkout-btn { background-color: #FF5722; }
-            #${ROOT_ID} #tb-share-cart-to-char-btn { background-color: #FF9800; }
-            #${ROOT_ID} #tb-buy-for-char-btn { background-color: #4CAF50; }
-
-            /* --- 商品详情弹窗 --- */
-            #${ROOT_ID} #tb-product-detail-body {
-                text-align: center;
-            }
-            #${ROOT_ID} #tb-product-detail-body .product-image {
-                width: 80%;
-                max-width: 250px;
-                border-radius: 8px;
-                margin-bottom: 15px;
-            }
-            #${ROOT_ID} #tb-product-detail-body .product-name {
-                font-size: 18px;
-                font-weight: 600;
-                margin-bottom: 10px;
-            }
-            #${ROOT_ID} #tb-product-detail-body .product-price {
-                font-size: 24px;
-                font-weight: bold;
-                color: #FF5722;
-                margin-bottom: 20px;
-            }
-            #${ROOT_ID} #tb-product-detail-body .product-price::before {
-                content: '¥';
-                font-size: 16px;
+            #${ROOT_ID} .checkout-info { display: flex; align-items: baseline; gap: 5px; }
+            #${ROOT_ID} #tb-cart-total-price { color: #FF5722; font-size: 18px; font-weight: 600; }
+            #${ROOT_ID} #tb-checkout-btn {
+                background: linear-gradient(to right, #FF9800, #FF5722);
+                color: white; border: none; border-radius: 20px;
+                padding: 8px 20px; font-size: 14px; font-weight: 600; cursor: pointer;
             }
 
-            /* --- 商品评价 --- */
-            #${ROOT_ID} #tb-product-reviews-section {
-                padding: 0 15px 15px 15px;
-                border-top: 1px solid var(--border-color);
-                margin-top: 15px;
-            }
-            #${ROOT_ID} #tb-product-reviews-section h3 {
-                font-size: 16px;
-                margin: 15px 0;
-            }
-            #${ROOT_ID} #tb-product-reviews-list {
-                display: flex;
-                flex-direction: column;
-                gap: 15px;
-                max-height: 150px;
-                overflow-y: auto;
-                margin-bottom: 15px;
-            }
-            #${ROOT_ID} .product-review-item {
-                font-size: 14px;
-                line-height: 1.6;
-                border-bottom: 1px solid #f0f0f0;
-                padding-bottom: 10px;
-            }
-            #${ROOT_ID} .product-review-item .review-author {
-                font-weight: 500;
-                color: var(--text-secondary);
-                margin-bottom: 5px;
-            }
-            #${ROOT_ID} #tb-generate-reviews-btn {
-                width: 100%;
-                margin-top: 10px;
-                background-color: #fff7e6;
-                color: #fa8c16;
-                border: 1px solid #ffd591;
-            }
-
-            /* --- 余额明细 --- */
-            #${ROOT_ID} .transaction-item {
-                background-color: var(--secondary-bg);
-                border-radius: 8px;
-                padding: 12px 15px;
-                margin-bottom: 10px;
-                box-shadow: 0 1px 3px rgba(0,0,0,0.06);
-                display: flex;
-                justify-content: space-between;
-                align-items: center;
-            }
-            #${ROOT_ID} .transaction-info .description {
-                font-weight: 500;
-            }
-            #${ROOT_ID} .transaction-info .timestamp {
-                font-size: 12px;
-                color: var(--text-secondary);
-                margin-top: 4px;
-            }
-            #${ROOT_ID} .transaction-amount {
-                font-weight: bold;
-                font-size: 16px;
-            }
-            #${ROOT_ID} .transaction-amount.income {
-                color: #4CAF50;
-            }
-            #${ROOT_ID} .transaction-amount.expense {
-                color: #F44336;
-            }
-
-            /* --- 物流详情 --- */
-            #${ROOT_ID} #tb-logistics-content-area {
-                padding: 20px;
-                background-color: #f5f5f5;
-            }
-            #${ROOT_ID} .logistics-product-summary {
-                display: flex;
-                gap: 15px;
-                padding: 15px;
-                margin-bottom: 20px;
-                background-color: var(--secondary-bg);
-                border-radius: 12px;
-                box-shadow: 0 2px 5px rgba(0,0,0,0.08);
-            }
-            #${ROOT_ID} .logistics-product-summary .product-image {
-                width: 60px;
-                height: 60px;
-                border-radius: 8px;
-                flex-shrink: 0;
-                object-fit: cover;
-            }
-            #${ROOT_ID} .logistics-product-summary .info .name {
-                font-weight: 600;
-                font-size: 15px;
-            }
-            #${ROOT_ID} .logistics-product-summary .info .status {
-                font-size: 13px;
-                color: #FF5722;
-                margin-top: 5px;
-                font-weight: 500;
-            }
-            #${ROOT_ID} .logistics-timeline {
-                position: relative;
-                padding: 20px 20px 20px 30px;
-                background-color: var(--secondary-bg);
-                border-radius: 12px;
-            }
-            #${ROOT_ID} .logistics-timeline::before {
-                content: '';
-                position: absolute;
-                left: 15px;
-                top: 20px;
-                bottom: 20px;
-                width: 2px;
-                background-color: #e0e0e0;
-            }
-            #${ROOT_ID} .logistics-step {
-                position: relative;
-                margin-bottom: 25px;
-            }
-            #${ROOT_ID} .logistics-step:last-child {
-                margin-bottom: 0;
-            }
-            #${ROOT_ID} .logistics-step::before {
-                content: '';
-                position: absolute;
-                left: -22px; 
-                top: 5px;
-                width: 10px;
-                height: 10px;
-                border-radius: 50%;
-                background-color: #ccc;
-                border: 2px solid var(--secondary-bg);
-                z-index: 1;
-            }
-            #${ROOT_ID} .logistics-step:first-child::before {
-                background-color: #FF5722;
-                transform: scale(1.3);
-            }
-            #${ROOT_ID} .logistics-step-content .status-text {
-                font-weight: 500;
-                font-size: 14px;
-                margin-bottom: 5px;
-                line-height: 1.5;
-            }
-            #${ROOT_ID} .logistics-step-content .timestamp {
-                font-size: 12px;
-                color: var(--text-secondary);
-            }
-            
-            /* --- Modal Styles --- */
-            #${ROOT_ID} .modal { display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; overflow: auto; background-color: rgba(0,0,0,0.4); }
-            #${ROOT_ID} .modal.visible { display: flex; align-items: center; justify-content: center; }
-            #${ROOT_ID} .modal-content { background-color: #fefefe; margin: auto; padding: 0; border: 1px solid #888; width: 90%; max-width: 500px; border-radius: 10px; overflow: hidden; display: flex; flex-direction: column; }
-            #${ROOT_ID} .modal-header { padding: 15px; border-bottom: 1px solid #ddd; font-size: 18px; font-weight: 600; }
+            /* --- 通用模态框 --- */
+            #${ROOT_ID} .modal { display: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.5); z-index: 100; align-items: center; justify-content: center; }
+            #${ROOT_ID} .modal.visible { display: flex; }
+            #${ROOT_ID} .modal-content { background-color: #fff; width: 85%; max-width: 400px; border-radius: 12px; overflow: hidden; display: flex; flex-direction: column; max-height: 80%; }
+            #${ROOT_ID} .modal-header { padding: 15px; font-size: 16px; font-weight: 600; text-align: center; border-bottom: 1px solid #eee; }
             #${ROOT_ID} .modal-body { padding: 20px; overflow-y: auto; }
-            #${ROOT_ID} .modal-footer { display: flex; justify-content: flex-end; gap: 10px; padding: 15px; border-top: 1px solid #ddd; }
-            #${ROOT_ID} .modal-footer button { padding: 8px 16px; border-radius: 5px; border: 1px solid transparent; cursor: pointer; }
-            #${ROOT_ID} .modal-footer .cancel { background-color: #f0f0f0; }
-            #${ROOT_ID} .modal-footer .save { background-color: #FF5722; color: white; }
-            
-            /* --- Form Group Styles --- */
+            #${ROOT_ID} .modal-footer { padding: 10px 15px; border-top: 1px solid #eee; display: flex; gap: 10px; }
+            #${ROOT_ID} .modal-btn { flex: 1; padding: 10px; border-radius: 20px; border: none; font-size: 14px; cursor: pointer; text-align: center; }
+            #${ROOT_ID} .modal-btn.primary { background: linear-gradient(to right, #FF9800, #FF5722); color: white; }
+            #${ROOT_ID} .modal-btn.secondary { background: #f5f5f5; color: #666; }
+
+            /* --- 表单样式 --- */
             #${ROOT_ID} .form-group { margin-bottom: 15px; }
-            #${ROOT_ID} .form-group label { display: block; margin-bottom: 5px; font-weight: 500; }
-            #${ROOT_ID} .form-group input, #${ROOT_ID} .form-group textarea { width: 100%; padding: 8px; box-sizing: border-box; border: 1px solid #ccc; border-radius: 4px; }
+            #${ROOT_ID} .form-label { display: block; margin-bottom: 5px; font-size: 13px; color: #666; }
+            #${ROOT_ID} .form-input { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 6px; box-sizing: border-box; font-size: 14px; }
+            
+            /* --- 商品详情弹窗特有 --- */
+            #${ROOT_ID} #tb-detail-img { width: 100%; aspect-ratio: 1/1; object-fit: cover; }
+            #${ROOT_ID} #tb-detail-info { padding: 15px; }
+            #${ROOT_ID} #tb-detail-price { color: #FF5722; font-size: 24px; font-weight: 600; }
+            #${ROOT_ID} #tb-detail-price::before { content: '¥'; font-size: 16px; }
+            #${ROOT_ID} #tb-detail-name { font-size: 15px; line-height: 1.4; margin-top: 5px; color: #333; font-weight: 500; }
+
+            /* --- 快捷操作菜单 --- */
+            #${ROOT_ID} .action-sheet { position: absolute; bottom: 0; left: 0; width: 100%; background: #fff; border-radius: 12px 12px 0 0; padding: 20px; padding-bottom: calc(20px + env(safe-area-inset-bottom)); transform: translateY(100%); transition: transform 0.3s; z-index: 101; box-sizing: border-box; }
+            #${ROOT_ID} .modal.visible .action-sheet { transform: translateY(0); }
+            #${ROOT_ID} .sheet-btn { display: block; width: 100%; padding: 12px; text-align: center; font-size: 16px; border-bottom: 1px solid #eee; cursor: pointer; }
+            #${ROOT_ID} .sheet-btn:last-child { border-bottom: none; border-top: 5px solid #f5f5f5; color: #666; margin-top: 5px; }
         `;
         document.head.appendChild(style);
-        console.log('✅ 桃宝App: 样式已注入');
     }
 
     // ============================================
@@ -674,647 +396,577 @@
 
         const container = document.createElement('div');
         container.id = ROOT_ID;
-        // 关键：HTML中的所有id都添加了'tb-'前缀
         container.innerHTML = `
-            <!-- ▼▼▼ “桃宝”功能主屏幕 ▼▼▼ -->
-            <div id="tb-taobao-screen" class="screen">
+            <!-- 主屏幕 -->
+            <div id="tb-main-screen" class="screen">
                 <div class="header">
-                    <span class="back-btn" data-action="hide-app">‹</span>
+                    <span class="back-btn" data-action="hide-app">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg>
+                    </span>
                     <span>桃宝</span>
                     <div class="header-actions">
-                        <span class="action-btn" id="tb-clear-taobao-products-btn" style="font-size: 16px; font-weight: 500;">清空</span>
-                        <span class="action-btn" id="tb-add-product-btn" title="添加商品">+</span>
+                        <span class="action-btn" data-action="open-menu">⋮</span>
                     </div>
                 </div>
                 
-                <div class="taobao-tabs">
-                    <button class="taobao-tab active" data-view="tb-products-view">首页</button>
-                    <button class="taobao-tab" data-view="tb-cart-view">
-                        购物车<span id="tb-cart-item-count-badge" style="display: none;">0</span>
-                    </button>
-                    <button class="taobao-tab" data-view="tb-orders-view">我的订单</button>
-                    <button class="taobao-tab" data-view="tb-my-view">我的</button>
-                </div>
-
                 <div class="taobao-content">
+                    <!-- 1. 首页/商品视图 -->
                     <div id="tb-products-view" class="taobao-view active">
-                      <div class="taobao-search-bar">
-                        <input type="search" id="tb-product-search-input" placeholder="搜一搜，让AI为你创造好物！">
-                        <button id="tb-product-search-btn">搜索</button>
-                      </div>
+                        <div class="taobao-search-bar">
+                            <input type="search" id="tb-product-search-input" placeholder="宝贝搜索...">
+                        </div>
                         <div id="tb-product-category-tabs"></div>
                         <div id="tb-product-grid" class="product-grid"></div>
                     </div>
 
+                    <!-- 2. 购物车视图 -->
                     <div id="tb-cart-view" class="taobao-view">
-                        <div id="tb-cart-item-list"></div>
-                        <div id="tb-cart-checkout-bar" style="display: none;">
-                            <div class="total-price">
-                                合计: <span id="tb-cart-total-price">¥ 0.00</span>
+                        <div id="tb-cart-list" class="common-list" style="padding-bottom: 60px;"></div>
+                        <div id="tb-cart-checkout-bar">
+                            <div class="checkout-info">
+                                <span style="font-size: 12px;">合计:</span>
+                                <span id="tb-cart-total-price">¥0.00</span>
                             </div>
-                            <div style="display: flex; gap: 10px;">
-                                <button id="tb-share-cart-to-char-btn">分享给Ta代付</button>
-                                <button id="tb-buy-for-char-btn">为Ta购买</button>
-                                <button id="tb-checkout-btn">结算(0)</button>
-                            </div>
+                            <button id="tb-checkout-btn">结算(0)</button>
                         </div>
                     </div>
 
+                    <!-- 3. 订单视图 -->
                     <div id="tb-orders-view" class="taobao-view">
-                        <div id="tb-order-list" class="order-list"></div>
+                        <div id="tb-order-list" class="common-list"></div>
                     </div>
 
+                    <!-- 4. 我的视图 -->
                     <div id="tb-my-view" class="taobao-view">
-                        <div id="tb-user-balance-container">
-                            <p>我的余额</p>
-                            <h2 id="tb-user-balance-display">¥ 0.00</h2>
-                            <button id="tb-top-up-btn" class="form-button">给钱包充点钱</button>
+                        <div id="tb-user-balance-card">
+                            <div style="font-size: 13px; opacity: 0.9;">我的余额</div>
+                            <div id="tb-user-balance-display">¥ 0.00</div>
+                            <button id="tb-top-up-btn">充值</button>
                         </div>
-                        <div id="tb-balance-details-list" class="order-list" style="padding: 0 15px;"></div>
+                        <h3 style="font-size: 15px; margin: 15px 0 10px 5px;">收支明细</h3>
+                        <div id="tb-transaction-list" class="common-list"></div>
                     </div>
                 </div>
-            </div>
 
-            <!-- ▼▼▼ 物流详情页面 ▼▼▼ -->
-            <div id="tb-logistics-screen" class="screen">
-                <div class="header">
-                    <span class="back-btn" id="tb-logistics-back-btn">‹</span>
-                    <span>物流详情</span>
-                    <span style="width: 30px;"></span>
+                <div class="taobao-tabs">
+                    <div class="taobao-tab active" data-view="tb-products-view">首页</div>
+                    <div class="taobao-tab" data-view="tb-cart-view">
+                        购物车<span id="tb-cart-item-count-badge" style="display: none;">0</span>
+                    </div>
+                    <div class="taobao-tab" data-view="tb-orders-view">订单</div>
+                    <div class="taobao-tab" data-view="tb-my-view">我的</div>
                 </div>
-                <div id="tb-logistics-content-area" class="list-container"></div>
             </div>
 
-            <!-- ▼▼▼ 商品详情弹窗 (Modal) ▼▼▼ -->
+            <!-- 商品详情弹窗 -->
             <div id="tb-product-detail-modal" class="modal">
-                <div class="modal-content">
-                    <div class="modal-header"><span>商品详情</span></div>
-                    <div class="modal-body" id="tb-product-detail-body"></div>
-                    <div id="tb-product-reviews-section">
-                        <h3>宝贝评价</h3>
-                        <div id="tb-product-reviews-list"></div>
-                        <button id="tb-generate-reviews-btn" class="form-button form-button-secondary">✨ AI生成评价</button>
+                <div class="modal-content" style="background: #f5f5f5; padding-bottom: 0;">
+                    <div style="position: relative;">
+                        <img id="tb-detail-img" src="">
+                        <div style="position: absolute; top: 10px; left: 10px; width: 30px; height: 30px; background: rgba(0,0,0,0.3); border-radius: 50%; display: flex; align-items: center; justify-content: center; color: white; cursor: pointer;" data-action="close-modal">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg>
+                        </div>
                     </div>
-                    <div class="modal-footer">
-                        <button class="cancel" data-action="close-modal">关闭</button>
-                        <button class="save" id="tb-detail-add-to-cart-btn">加入购物车</button>
+                    <div id="tb-detail-info" style="background: #fff; border-radius: 12px 12px 0 0; margin-top: -10px; position: relative; flex-grow: 1;">
+                        <div id="tb-detail-price"></div>
+                        <div id="tb-detail-name"></div>
                     </div>
-                </div>
-            </div>
-
-            <!-- ▼▼▼ 添加商品方式选择弹窗 (Modal) ▼▼▼ -->
-            <div id="tb-add-product-choice-modal" class="modal">
-                <div style="width: 250px; background: #fff; border-radius: 12px; padding: 16px; box-shadow: 0 4px 12px rgba(0,0,0,0.1);">
-                    <div style="font-weight: 600; text-align: center; margin-bottom: 16px;">选择添加方式</div>
-                    <div style="display:flex; flex-direction:column; gap: 8px;">
-                        <button id="tb-add-product-manual-btn" style="width:100%; padding:10px; border-radius: 8px; border:none; background-color: #f0f0f0;">手动添加</button>
-                        <button id="tb-add-product-link-btn" style="width:100%; padding:10px; border-radius: 8px; border:none; background-color: #f0f0f0;">识别链接</button>
-                        <button id="tb-add-product-ai-btn" style="width:100%; padding:10px; border-radius: 8px; border:none; background-color: #f0f0f0;">AI生成</button>
-                        <button data-action="close-modal" style="margin-top: 8px; width:100%; padding:10px; border-radius: 8px; border:none; background-color: #e0e0e0;">取消</button>
+                    <div style="padding: 10px; background: #fff; border-top: 1px solid #eee;">
+                        <button id="tb-detail-add-cart-btn" class="modal-btn primary" style="width: 100%;">加入购物车</button>
                     </div>
                 </div>
             </div>
 
-            <!-- ▼▼▼ 手动添加/编辑商品弹窗 (Modal) ▼▼▼ -->
+            <!-- 商品编辑/添加弹窗 -->
             <div id="tb-product-editor-modal" class="modal">
-                <div class="modal-content" style="height: auto;">
-                    <div class="modal-header"><span id="tb-product-editor-title">添加新商品</span></div>
+                <div class="modal-content">
+                    <div class="modal-header"><span id="tb-editor-title">添加商品</span></div>
                     <div class="modal-body">
-                        <div class="form-group"><label for="tb-product-name-input">商品名称</label><input type="text" id="tb-product-name-input"></div>
-                        <div class="form-group"><label for="tb-product-price-input">价格 (元)</label><input type="number" id="tb-product-price-input"></div>
-                        <div class="form-group"><label for="tb-product-image-input">图片 URL</label><input type="text" id="tb-product-image-input"></div>
-                        <div class="form-group"><label for="tb-product-category-input">分类 (选填)</label><input type="text" id="tb-product-category-input" placeholder="例如：衣服, 零食..."></div>
+                        <div class="form-group"><label class="form-label">商品名称</label><input type="text" id="tb-edit-name" class="form-input"></div>
+                        <div class="form-group"><label class="form-label">价格</label><input type="number" id="tb-edit-price" class="form-input"></div>
+                        <div class="form-group"><label class="form-label">图片URL</label><input type="text" id="tb-edit-image" class="form-input" placeholder="http://..."></div>
+                        <div class="form-group"><label class="form-label">分类</label><input type="text" id="tb-edit-category" class="form-input" placeholder="例如: 服装, 数码..."></div>
                     </div>
                     <div class="modal-footer">
-                        <button class="cancel" data-action="close-modal">取消</button>
-                        <button class="save" id="tb-save-product-btn">保存</button>
+                        <div class="modal-btn secondary" data-action="close-modal">取消</div>
+                        <div class="modal-btn primary" id="tb-save-product-btn">保存</div>
                     </div>
                 </div>
             </div>
 
-            <!-- ▼▼▼ 识别链接弹窗 (Modal) ▼▼▼ -->
-            <div id="tb-add-from-link-modal" class="modal">
-                <div class="modal-content" style="height: auto;">
-                    <div class="modal-header"><span>粘贴分享文案</span></div>
-                    <div class="modal-body"><textarea id="tb-link-paste-area" rows="6" placeholder="请在这里粘贴完整的淘宝或拼多多分享文案..."></textarea></div>
-                    <div class="modal-footer">
-                        <button class="cancel" data-action="close-modal">取消</button>
-                        <button class="save" id="tb-confirm-link-paste-btn">识别</button>
-                    </div>
-                </div>
-            </div>
-
-            <!-- ▼▼▼ AI生成商品结果弹窗 (Modal) ▼▼▼ -->
-            <div id="tb-ai-generated-products-modal" class="modal">
-                <div class="modal-content" style="height: 80%;">
-                    <div class="modal-header"><span id="tb-ai-products-modal-title">AI为你生成了以下宝贝</span></div>
-                    <div class="modal-body" style="padding: 15px;"><div id="tb-ai-product-results-grid" class="product-grid"></div></div>
-                    <div class="modal-footer"><button class="save" data-action="close-modal" style="width: 100%;">完成</button></div>
+            <!-- 底部操作菜单 -->
+            <div id="tb-action-sheet-modal" class="modal" style="align-items: flex-end; background-color: rgba(0,0,0,0.3);">
+                <div class="action-sheet">
+                    <div class="sheet-btn" id="tb-menu-add-product">手动添加商品</div>
+                    <div class="sheet-btn" id="tb-menu-clear-data" style="color: #FF3D00;">清空所有数据</div>
+                    <div class="sheet-btn" data-action="close-modal">取消</div>
                 </div>
             </div>
         `;
         document.body.appendChild(container);
-        console.log('✅ 桃宝App: HTML结构已创建');
     }
     
     // ============================================
-    // 第三部分: 核心JavaScript功能 (已适配tb-前缀)
+    // 第三部分: 核心JavaScript功能
     // ============================================
 
     // --- 数据库设置 ---
     function setupDatabase() {
         if (!window.Dexie) {
-            console.error("Dexie.js is not loaded. Taobao App cannot run.");
             alert("错误：缺少Dexie.js库，应用无法运行。");
             return false;
         }
-        db = new Dexie("TaobaoAppModuleDB"); // 唯一数据库名
+        db = new Dexie("TaobaoAppDB_V2"); // 使用新数据库名以防冲突
         db.version(1).stores({
-            globalSettings: 'key',
-            taobaoProducts: '++id, name, category', 
-            taobaoOrders: '++id, productId, timestamp',
-            taobaoCart: '++id, &productId',
-            userWalletTransactions: '++id, timestamp' 
+            settings: 'key', // 存储余额等
+            products: '++id, name, category, createdAt', 
+            cart: '++id, productId',
+            orders: '++id, timestamp',
+            transactions: '++id, timestamp' 
         });
-        console.log("✅ 桃宝App: 数据库已设置");
         return true;
     }
 
     // --- 工具函数 ---
-    function getElement(id) { return document.getElementById(id); }
-    function openModal(modalId) { getElement(modalId)?.classList.add('visible'); }
-    function closeModal(modalId) { getElement(modalId)?.classList.remove('visible'); }
-    function showTaobaoScreen(screenId) {
-        document.querySelectorAll(`#${ROOT_ID} .screen`).forEach(s => s.style.display = 'none');
-        getElement(screenId).style.display = 'flex';
-    }
-    function hideTaobaoApp() {
-        const appContainer = getElement(ROOT_ID);
-        if (appContainer) {
-            appContainer.querySelectorAll('.screen').forEach(s => s.style.display = 'none');
-        }
-    }
-    function getRandomDefaultProductImage() {
-        const defaultImages = ['https://i.postimg.cc/W4svy4Hm/Image-1760206134285.jpg', 'https://i.postimg.cc/jjRb1jF7/Image-1760206125678.jpg'];
-        return defaultImages[Math.floor(Math.random() * defaultImages.length)];
-    }
-    function showAlert(message) { alert(message); }
-    function showConfirm(message) { return confirm(message); }
-
+    const $ = (selector) => document.querySelector(`#${ROOT_ID} ${selector}`);
+    const $$ = (selector) => document.querySelectorAll(`#${ROOT_ID} ${selector}`);
+    const formatPrice = (price) => `¥${Number(price).toFixed(2)}`;
+    const getRandomImage = () => ['https://img.alicdn.com/bao/uploaded/i4/2200724510033/O1CN01Example1.jpg', 'https://img.alicdn.com/bao/uploaded/i2/292666/O1CN01Example2.jpg'][Math.floor(Math.random() * 2)];
 
     // --- UI渲染函数 ---
     
-    async function renderTaobaoProducts(category = null, searchTerm = null) {
-        const gridEl = getElement('tb-product-grid');
-        const categoryTabsEl = getElement('tb-product-category-tabs');
-        gridEl.innerHTML = '<p style="grid-column: 1 / -1; text-align: center;">加载中...</p>';
+    // 1. 渲染商品列表
+    async function renderProducts(category = null, searchTerm = null) {
+        const grid = $('#tb-product-grid');
+        const tabs = $('#tb-product-category-tabs');
+        grid.innerHTML = '';
 
-        let allProducts = await db.taobaoProducts.toArray();
-        const categories = [...new Set(allProducts.map(p => p.category).filter(Boolean))].sort();
+        let products = await db.products.orderBy('createdAt').reverse().toArray();
+        
+        // 渲染分类
+        const categories = ['全部', ...new Set(products.map(p => p.category).filter(Boolean))];
+        tabs.innerHTML = categories.map(cat => 
+            `<button class="category-tab-btn ${cat === (category || '全部') ? 'active' : ''}" data-cat="${cat}">${cat}</button>`
+        ).join('');
 
-        categoryTabsEl.innerHTML = `<button class="category-tab-btn ${!category ? 'active' : ''}" data-category="all">全部</button>`;
-        categories.forEach(cat => {
-            categoryTabsEl.innerHTML += `<button class="category-tab-btn ${category === cat ? 'active' : ''}" data-category="${cat}">${cat}</button>`;
-        });
+        // 筛选
+        if (category && category !== '全部') products = products.filter(p => p.category === category);
+        if (searchTerm) products = products.filter(p => p.name.includes(searchTerm));
 
-        let productsToRender = allProducts;
-        if (category) productsToRender = productsToRender.filter(p => p.category === category);
-        if (searchTerm) {
-            const lowerSearchTerm = searchTerm.toLowerCase();
-            productsToRender = productsToRender.filter(p => p.name.toLowerCase().includes(lowerSearchTerm));
-        }
-        productsToRender.reverse();
-
-        gridEl.innerHTML = '';
-        if (productsToRender.length === 0) {
-            gridEl.innerHTML = '<p style="grid-column: 1 / -1; text-align: center; color: #888;">没有找到商品哦~</p>';
+        if (products.length === 0) {
+            grid.innerHTML = `<div style="grid-column:1/-1;text-align:center;color:#999;padding:50px 0;">没有找到商品<br>点击右上角菜单添加</div>`;
             return;
         }
 
-        productsToRender.forEach(product => {
+        // 渲染卡片
+        products.forEach(p => {
             const card = document.createElement('div');
             card.className = 'product-card';
-            card.dataset.productId = product.id;
             card.innerHTML = `
-                <img src="${product.imageUrl || getRandomDefaultProductImage()}" class="product-image" alt="${product.name}">
+                <img src="${p.image || getRandomImage()}" class="product-image" loading="lazy">
                 <div class="product-info">
-                    <div class="product-name">${product.name}</div>
-                    <div class="product-price">${product.price.toFixed(2)}</div>
+                    <div class="product-name">${p.name}</div>
+                    <div class="product-price-row">
+                        <div class="product-price">${p.price.toFixed(2)}</div>
+                        <div class="add-cart-btn-small" data-id="${p.id}">+</div>
+                    </div>
                 </div>
-                <button class="add-cart-btn" data-product-id="${product.id}">+</button>
             `;
-            gridEl.appendChild(card);
+            // 点击卡片看详情
+            card.addEventListener('click', (e) => {
+                if (!e.target.classList.contains('add-cart-btn-small')) openProductDetail(p);
+            });
+            // 长按编辑
+            let timer;
+            card.addEventListener('touchstart', () => timer = setTimeout(() => openProductEditor(p), 800));
+            card.addEventListener('touchend', () => clearTimeout(timer));
+            card.addEventListener('touchmove', () => clearTimeout(timer));
+            
+            grid.appendChild(card);
         });
     }
     
-    async function renderTaobaoCart() {
-        const listEl = getElement('tb-cart-item-list');
-        const checkoutBar = getElement('tb-cart-checkout-bar');
-        listEl.innerHTML = '<p>加载中...</p>';
+    // 2. 渲染购物车
+    async function renderCart() {
+        const list = $('#tb-cart-list');
+        list.innerHTML = '';
         
-        const cartItems = await db.taobaoCart.toArray();
+        const cartItems = await db.cart.toArray();
+        let total = 0;
+        let count = 0;
+        const productMap = new Map();
 
-        if (cartItems.length === 0) {
-            listEl.innerHTML = '<p style="text-align:center; color: var(--text-secondary, #555); padding: 50px 0;">购物车空空如也~</p>';
-            checkoutBar.style.display = 'none';
-            updateCartBadge();
+        // 聚合商品
+        for (const item of cartItems) {
+            if(productMap.has(item.productId)) {
+                productMap.get(item.productId).quantity++;
+                productMap.get(item.productId).cartIds.push(item.id);
+            } else {
+                const product = await db.products.get(item.productId);
+                if(product) {
+                    productMap.set(item.productId, { product, quantity: 1, cartIds: [item.id] });
+                } else {
+                    db.cart.delete(item.id); // 清理无效项
+                }
+            }
+        }
+
+        if (productMap.size === 0) {
+            list.innerHTML = `<div style="text-align:center;color:#999;padding:80px 0;"><svg width="60" height="60" fill="#ddd" viewBox="0 0 24 24"><path d="M7 18c-1.1 0-1.99.9-1.99 2S5.9 22 7 22s2-.9 2-2-.9-2-2-2zM1 2v2h2l3.6 7.59-1.35 2.45c-.16.28-.25.61-.25.96 0 1.1.9 2 2 2h12v-2H7.42c-.14 0-.25-.11-.25-.25l.03-.12.9-1.63h7.45c.75 0 1.41-.41 1.75-1.03l3.58-6.49c.08-.14.12-.31.12-.48 0-.55-.45-1-1-1H5.21l-.94-2H1zm16 16c-1.1 0-1.99.9-1.99 2s.89 2 1.99 2 2-.9 2-2-.9-2-2-2z"/></svg><br><br>购物车空空如也</div>`;
+            updateCartBar(0, 0);
             return;
         }
-        
-        listEl.innerHTML = '';
-        checkoutBar.style.display = 'flex';
-        let totalPrice = 0;
-        let totalItems = 0;
 
-        for (const item of cartItems) {
-            const product = await db.taobaoProducts.get(item.productId);
-            if (!product) { await db.taobaoCart.delete(item.id); continue; }
-
-            totalItems += item.quantity;
-            totalPrice += product.price * item.quantity;
-
-            const itemEl = document.createElement('div');
-            itemEl.className = 'cart-item';
-            itemEl.dataset.productId = product.id;
-            itemEl.innerHTML = `
-                <img src="${product.imageUrl || getRandomDefaultProductImage()}" class="product-image">
-                <div class="cart-item-info">
-                    <div class="product-name">${product.name}</div>
-                    <div class="product-price">¥${product.price.toFixed(2)}</div>
+        productMap.forEach(({product, quantity, cartIds}) => {
+            total += product.price * quantity;
+            count += quantity;
+            const item = document.createElement('div');
+            item.className = 'cart-item';
+            item.innerHTML = `
+                <img src="${product.image || getRandomImage()}">
+                <div class="cart-item-details">
+                    <div class="cart-item-title">${product.name}</div>
+                    <div class="cart-item-bottom">
+                        <div class="cart-item-price">${formatPrice(product.price)}</div>
+                        <div class="quantity-control">
+                            <div class="quantity-btn minus" data-ids='${JSON.stringify(cartIds)}'>-</div>
+                            <div class="quantity-num">${quantity}</div>
+                            <div class="quantity-btn plus" data-pid="${product.id}">+</div>
+                        </div>
+                    </div>
                 </div>
-                <div class="quantity-controls">
-                    <button class="quantity-decrease" data-cart-id="${item.id}" ${item.quantity <= 1 ? 'disabled' : ''}>-</button>
-                    <span class="quantity-display">${item.quantity}</span>
-                    <button class="quantity-increase" data-cart-id="${item.id}">+</button>
-                </div>
-                <button class="delete-cart-item-btn" data-cart-id="${item.id}">×</button>
             `;
-            listEl.appendChild(itemEl);
-        }
-        
-        getElement('tb-cart-total-price').textContent = `¥ ${totalPrice.toFixed(2)}`;
-        getElement('tb-checkout-btn').textContent = `结算(${totalItems})`;
-        updateCartBadge();
+            list.appendChild(item);
+        });
+        updateCartBar(total, count);
     }
 
-    async function updateCartBadge() {
-        const badge = getElement('tb-cart-item-count-badge');
-        const totalCount = await db.taobaoCart.reduce((sum, item) => sum + item.quantity, 0);
-        if (totalCount > 0) {
-            badge.textContent = totalCount > 99 ? '99+' : totalCount;
-            badge.style.display = 'inline-block';
+    function updateCartBar(total, count) {
+        $('#tb-cart-total-price').textContent = formatPrice(total);
+        $('#tb-checkout-btn').textContent = `结算(${count})`;
+        const badge = $('#tb-cart-item-count-badge');
+        if(count > 0) {
+            badge.textContent = count; badge.style.display = 'block';
         } else {
             badge.style.display = 'none';
         }
     }
 
-    async function renderTaobaoOrders() {
-        const orderListEl = getElement('tb-order-list');
-        orderListEl.innerHTML = '<p>加载中...</p>';
-        const orders = await db.taobaoOrders.orderBy('timestamp').reverse().toArray();
+    // 3. 渲染通用列表 (订单/明细)
+    async function renderList(viewType) {
+        const list = viewType === 'orders' ? $('#tb-order-list') : $('#tb-transaction-list');
+        list.innerHTML = '';
+        const table = viewType === 'orders' ? db.orders : db.transactions;
+        const items = await table.orderBy('timestamp').reverse().toArray();
 
-        if (orders.length === 0) {
-            orderListEl.innerHTML = '<p style="text-align:center; color: var(--text-secondary, #555); padding: 50px 0;">你还没有订单哦~</p>';
+        if (items.length === 0) {
+            list.innerHTML = `<div style="text-align:center;color:#999;padding:50px 0;">暂无记录</div>`;
             return;
         }
 
-        orderListEl.innerHTML = '';
-        for(const order of orders) {
-            const product = await db.taobaoProducts.get(order.productId);
-            if (!product) continue;
-
-            const orderEl = document.createElement('div');
-            orderEl.className = 'order-item';
-            orderEl.dataset.orderId = order.id;
-            orderEl.innerHTML = `
-                <img src="${product.imageUrl || getRandomDefaultProductImage()}" class="product-image">
-                <div class="order-info">
-                    <div class="product-name">${product.name} (x${order.quantity})</div>
-                    <div class="order-status">${order.status || '已付款'}</div>
-                    <div class="order-time">${new Date(order.timestamp).toLocaleString()}</div>
-                </div>
-            `;
-            orderListEl.appendChild(orderEl);
+        for(const item of items) {
+            const el = document.createElement('div');
+            el.className = 'list-item-card';
+            
+            if (viewType === 'orders') {
+                const p = await db.products.get(item.productId);
+                if(!p) continue;
+                el.innerHTML = `
+                    <img src="${p.image || getRandomImage()}">
+                    <div class="list-item-info">
+                        <div class="list-item-title">${p.name} x${item.quantity}</div>
+                        <div class="list-item-desc">${new Date(item.timestamp).toLocaleString()}</div>
+                    </div>
+                    <div class="list-item-right">
+                        <div class="list-item-status">已签收</div>
+                    </div>
+                `;
+            } else { // transactions
+                el.innerHTML = `
+                    <div class="list-item-info">
+                        <div class="list-item-title">${item.desc}</div>
+                        <div class="list-item-desc">${new Date(item.timestamp).toLocaleString()}</div>
+                    </div>
+                    <div class="list-item-right">
+                        <div class="transaction-amount ${item.amount > 0 ? 'income' : 'expense'}">${item.amount > 0 ? '+' : ''}${item.amount.toFixed(2)}</div>
+                    </div>
+                `;
+            }
+            list.appendChild(el);
         }
     }
 
-    function updateUserBalanceDisplay() {
-        getElement('tb-user-balance-display').textContent = `¥ ${state.userBalance.toFixed(2)}`;
+    // --- 核心逻辑 ---
+    
+    async function getBalance() {
+        const rec = await db.settings.get('balance');
+        return rec ? rec.value : 0;
     }
     
-    async function renderBalanceDetails() {
-        updateUserBalanceDisplay();
-        const detailsListEl = getElement('tb-balance-details-list');
-        detailsListEl.innerHTML = '<h3>收支明细</h3><p>加载中...</p>';
-
-        const transactions = await db.userWalletTransactions.orderBy('timestamp').reverse().toArray();
-
-        if (transactions.length === 0) {
-            detailsListEl.innerHTML = '<h3>收支明细</h3><p style="text-align:center; color: #888;">暂无收支明细</p>';
-            return;
-        }
-
-        detailsListEl.innerHTML = '<h3>收支明细</h3>';
-        transactions.forEach(tx => {
-            const isIncome = tx.amount > 0;
-            const itemEl = document.createElement('div');
-            itemEl.className = 'transaction-item';
-            itemEl.innerHTML = `
-                <div class="transaction-info">
-                    <div class="description">${tx.description}</div>
-                    <div class="timestamp">${new Date(tx.timestamp).toLocaleString()}</div>
-                </div>
-                <div class="transaction-amount ${isIncome ? 'income' : 'expense'}">
-                    ${isIncome ? '+' : ''}${tx.amount.toFixed(2)}
-                </div>
-            `;
-            detailsListEl.appendChild(itemEl);
+    async function updateBalance(amount, desc) {
+        const current = await getBalance();
+        const newBal = current + amount;
+        if (newBal < 0) return false;
+        
+        await db.transaction('rw', db.settings, db.transactions, async () => {
+            await db.settings.put({ key: 'balance', value: newBal });
+            await db.transactions.add({ amount, desc, timestamp: Date.now() });
         });
+        $('#tb-user-balance-display').textContent = formatPrice(newBal);
+        if(state.currentView === 'tb-my-view') renderList('transactions');
+        return true;
     }
 
-    // --- 数据与核心逻辑函数 ---
-
-    async function loadInitialData() {
-        const balanceSetting = await db.globalSettings.get('userBalance');
-        state.userBalance = balanceSetting ? balanceSetting.value : 1000;
-        updateUserBalanceDisplay();
+    async function addToCart(productId) {
+        await db.cart.add({ productId });
+        renderCart(); // 刷新角标
+        // 显示一个小提示
+        const toast = document.createElement('div');
+        toast.textContent = '已加入购物车';
+        toast.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:rgba(0,0,0,0.7);color:#fff;padding:10px 20px;border-radius:5px;z-index:3000;font-size:14px;';
+        $(`#${ROOT_ID}`).appendChild(toast);
+        setTimeout(() => toast.remove(), 1500);
     }
-    
-    function switchTaobaoView(viewId) {
-        if (state.currentView === viewId) return;
-        state.currentView = viewId;
 
-        document.querySelectorAll(`#${ROOT_ID} .taobao-view`).forEach(v => v.classList.remove('active'));
-        getElement(viewId).classList.add('active');
+    async function checkout() {
+        const cartItems = await db.cart.toArray();
+        if (cartItems.length === 0) return;
+        
+        let total = 0;
+        const orders = [];
+        const productMap = new Map();
 
-        document.querySelectorAll(`#${ROOT_ID} .taobao-tab`).forEach(t => {
-            t.classList.toggle('active', t.dataset.view === viewId);
-        });
-
-        switch (viewId) {
-            case 'tb-products-view': renderTaobaoProducts(); break;
-            case 'tb-cart-view': renderTaobaoCart(); break;
-            case 'tb-orders-view': renderTaobaoOrders(); break;
-            case 'tb-my-view': renderBalanceDetails(); break;
+        for(const item of cartItems) {
+            if (!productMap.has(item.productId)) {
+                const p = await db.products.get(item.productId);
+                if(p) productMap.set(item.productId, { price: p.price, count: 0 });
+            }
+            if(productMap.has(item.productId)) {
+                productMap.get(item.productId).count++;
+                total += productMap.get(item.productId).price;
+            }
         }
-    }
-    
-    async function handleAddToCart(productId) {
-        productId = parseInt(productId);
-        const existingItem = await db.taobaoCart.get({ productId });
-        if (existingItem) {
-            await db.taobaoCart.update(existingItem.id, { quantity: existingItem.quantity + 1 });
-        } else {
-            await db.taobaoCart.add({ productId: productId, quantity: 1 });
-        }
-        showAlert('宝贝已加入购物车！');
-        updateCartBadge();
-        if (state.currentView === 'tb-cart-view') await renderTaobaoCart();
-    }
-    
-    async function handleChangeCartItemQuantity(cartId, change) {
-        cartId = parseInt(cartId);
-        const item = await db.taobaoCart.get(cartId);
-        if (!item) return;
-        const newQuantity = item.quantity + change;
-        if (newQuantity <= 0) {
-            await handleRemoveFromCart(cartId);
-        } else {
-            await db.taobaoCart.update(cartId, { quantity: newQuantity });
-            await renderTaobaoCart();
-        }
-    }
 
-    async function handleRemoveFromCart(cartId) {
-        cartId = parseInt(cartId);
-        if(await showConfirm('确定要删除这个宝贝吗？')){
-            await db.taobaoCart.delete(cartId);
-            await renderTaobaoCart();
+        if(confirm(`合计 ${formatPrice(total)}，确认付款？`)) {
+            const success = await updateBalance(-total, '淘宝购物');
+            if(success) {
+                const now = Date.now();
+                productMap.forEach((val, pid) => {
+                    orders.push({ productId: pid, quantity: val.count, timestamp: now });
+                });
+                
+                await db.transaction('rw', db.cart, db.orders, async () => {
+                    await db.orders.bulkAdd(orders);
+                    await db.cart.clear();
+                });
+                
+                switchView('tb-orders-view');
+                renderCart(); // 更新角标
+            } else {
+                alert('余额不足，请充值。');
+                switchView('tb-my-view');
+            }
         }
     }
 
-    async function handleCheckout() {
-        const cartItems = await db.taobaoCart.toArray();
-        if (cartItems.length === 0) { showAlert("购物车是空的！"); return; }
+    // --- 弹窗操作 ---
+    function openProductDetail(p) {
+        $('#tb-detail-img').src = p.image || getRandomImage();
+        $('#tb-detail-price').textContent = p.price.toFixed(2);
+        $('#tb-detail-name').textContent = p.name;
+        $('#tb-detail-add-cart-btn').onclick = () => {
+            addToCart(p.id);
+            $('#tb-product-detail-modal').classList.remove('visible');
+        };
+        $('#tb-product-detail-modal').classList.add('visible');
+    }
 
-        let totalPrice = 0;
-        const productPromises = cartItems.map(item => db.taobaoProducts.get(item.productId));
-        const products = await Promise.all(productPromises);
-        products.forEach((p, i) => { if (p) totalPrice += p.price * cartItems[i].quantity; });
-
-        if (state.userBalance < totalPrice) {
-            showAlert(`余额不足！需要 ¥${totalPrice.toFixed(2)}`);
-            return;
+    function openProductEditor(p = null) {
+        state.currentEditingProductId = p ? p.id : null;
+        $('#tb-editor-title').textContent = p ? '编辑商品' : '添加商品';
+        $('#tb-edit-name').value = p ? p.name : '';
+        $('#tb-edit-price').value = p ? p.price : '';
+        $('#tb-edit-image').value = p ? p.image : '';
+        $('#tb-edit-category').value = p ? p.category : '';
+        
+        // 如果是编辑模式，添加删除按钮
+        const footer = $('#tb-product-editor-modal .modal-footer');
+        const existingDelBtn = footer.querySelector('.btn-delete');
+        if(existingDelBtn) existingDelBtn.remove();
+        
+        if(p) {
+            const delBtn = document.createElement('div');
+            delBtn.className = 'modal-btn secondary btn-delete';
+            delBtn.style.color = 'red';
+            delBtn.textContent = '删除';
+            delBtn.onclick = async () => {
+                if(confirm('确定删除？')) {
+                    await db.products.delete(p.id);
+                    $('#tb-product-editor-modal').classList.remove('visible');
+                    renderProducts();
+                }
+            };
+            footer.insertBefore(delBtn, footer.firstChild);
         }
 
-        if (await showConfirm(`总计 ¥${totalPrice.toFixed(2)}，确认支付吗？`)) {
-            await updateUserBalanceAndLogTransaction(-totalPrice, '购物消费');
-            await createOrdersFromCart(cartItems, products);
-            await db.taobaoCart.clear();
-            showAlert('支付成功！订单已生成。');
-            switchTaobaoView('tb-orders-view');
-        }
-    }
-
-    async function handleBuyForChar() { showAlert("为Ta购买（送礼）功能正在开发中..."); }
-
-    async function createOrdersFromCart(cartItems, products) {
-        const timestamp = Date.now();
-        const newOrders = cartItems.map((item, i) => ({
-            productId: item.productId,
-            quantity: item.quantity,
-            price: products[i].price,
-            timestamp: timestamp,
-            status: '已付款，待发货'
-        }));
-        await db.taobaoOrders.bulkAdd(newOrders);
-    }
-    
-    async function updateUserBalanceAndLogTransaction(amount, description) {
-        state.userBalance += amount;
-        await db.globalSettings.put({ key: 'userBalance', value: state.userBalance });
-        await db.userWalletTransactions.add({ amount, description, timestamp: Date.now() });
-        updateUserBalanceDisplay();
-    }
-    
-    async function openProductDetail(productId) {
-        productId = parseInt(productId);
-        const product = await db.taobaoProducts.get(productId);
-        if (!product) return;
-
-        getElement('tb-product-detail-body').innerHTML = `
-            <img src="${product.imageUrl || getRandomDefaultProductImage()}" class="product-image" alt="${product.name}">
-            <div class="product-name">${product.name}</div>
-            <div class="product-price">${product.price.toFixed(2)}</div>
-        `;
-        getElement('tb-detail-add-to-cart-btn').dataset.productId = product.id;
-        getElement('tb-product-reviews-list').innerHTML = '<p style="text-align: center; color: #888; font-size: 13px;">还没有人评价哦~</p>';
-        openModal('tb-product-detail-modal');
-    }
-
-    async function clearTaobaoProducts() {
-        if(await showConfirm('确认清空所有商品和购物车吗？此操作无法恢复。')){
-            await db.taobaoProducts.clear();
-            await db.taobaoCart.clear();
-            await renderTaobaoProducts();
-            updateCartBadge();
-            showAlert('所有商品已清空！');
-        }
-    }
-    
-    function openProductEditor(product = null) {
-        const titleEl = getElement('tb-product-editor-title');
-        const nameInput = getElement('tb-product-name-input');
-        const priceInput = getElement('tb-product-price-input');
-        const imageInput = getElement('tb-product-image-input');
-        const categoryInput = getElement('tb-product-category-input');
-
-        if (product) {
-            titleEl.textContent = '编辑商品';
-            nameInput.value = product.name;
-            priceInput.value = product.price;
-            imageInput.value = product.imageUrl;
-            categoryInput.value = product.category;
-            state.currentEditingProductId = product.id;
-        } else {
-            titleEl.textContent = '添加新商品';
-            [nameInput, priceInput, imageInput, categoryInput].forEach(el => el.value = '');
-            state.currentEditingProductId = null;
-        }
-        openModal('tb-product-editor-modal');
+        $('#tb-product-editor-modal').classList.add('visible');
+        $('#tb-action-sheet-modal').classList.remove('visible');
     }
 
     async function saveProduct() {
-        const name = getElement('tb-product-name-input').value.trim();
-        const price = parseFloat(getElement('tb-product-price-input').value);
-        const imageUrl = getElement('tb-product-image-input').value.trim();
-        const category = getElement('tb-product-category-input').value.trim();
+        const name = $('#tb-edit-name').value.trim();
+        const price = parseFloat($('#tb-edit-price').value);
+        const image = $('#tb-edit-image').value.trim();
+        const category = $('#tb-edit-category').value.trim() || '其他';
 
-        if (!name || isNaN(price) || price <= 0) { showAlert('请输入有效的商品名称和价格！'); return; }
+        if(!name || isNaN(price)) return alert('请输入名称和价格');
 
-        const productData = { name, price, imageUrl, category };
-        if (state.currentEditingProductId) {
-            await db.taobaoProducts.update(state.currentEditingProductId, productData);
+        const data = { name, price, image, category, createdAt: Date.now() };
+        
+        if(state.currentEditingProductId) {
+            await db.products.update(state.currentEditingProductId, data);
         } else {
-            await db.taobaoProducts.add(productData);
+            await db.products.add(data);
         }
-        closeModal('tb-product-editor-modal');
-        await renderTaobaoProducts();
+        
+        $('#tb-product-editor-modal').classList.remove('visible');
+        if(state.currentView === 'tb-products-view') renderProducts();
     }
 
+    // --- 视图切换 ---
+    function switchView(viewId) {
+        state.currentView = viewId;
+        $$('.taobao-view').forEach(el => el.classList.remove('active'));
+        $(`#${viewId}`).classList.add('active');
+        $$('.taobao-tab').forEach(el => el.classList.toggle('active', el.dataset.view === viewId));
+
+        // 加载数据
+        if(viewId === 'tb-products-view') renderProducts();
+        if(viewId === 'tb-cart-view') renderCart();
+        if(viewId === 'tb-orders-view') renderList('orders');
+        if(viewId === 'tb-my-view') {
+            getBalance().then(b => $('#tb-user-balance-display').textContent = formatPrice(b));
+            renderList('transactions');
+        }
+    }
 
     // ============================================
     // 第四部分: 事件监听器绑定
     // ============================================
     function bindEventListeners() {
-        const root = getElement(ROOT_ID);
-        if (!root) return;
-
+        const root = $(`#${ROOT_ID}`);
+        
         root.addEventListener('click', async (e) => {
             const target = e.target;
-            const action = target.dataset.action || target.closest('[data-action]')?.dataset.action;
-
-            // --- 全局操作 ---
-            if (action === 'close-modal') {
-                closeModal(target.closest('.modal').id);
+            
+            // 关闭模态框
+            if (target.dataset.action === 'close-modal' || target.closest('[data-action="close-modal"]')) {
+                target.closest('.modal').classList.remove('visible');
                 return;
             }
-            if (action === 'hide-app') {
-                hideTaobaoApp();
+            
+            // 隐藏App
+            if (target.dataset.action === 'hide-app') {
+                $('#tb-main-screen').style.display = 'none'; return;
+            }
+            
+            // 底部标签切换
+            if (target.classList.contains('taobao-tab')) {
+                switchView(target.dataset.view); return;
+            }
+            
+            // 首页：分类切换
+            if (target.classList.contains('category-tab-btn')) {
+                renderProducts(target.dataset.cat, $('#tb-product-search-input').value); return;
+            }
+            
+            // 首页：加入购物车(小按钮)
+            if (target.classList.contains('add-cart-btn-small')) {
+                addToCart(parseInt(target.dataset.id)); 
+                e.stopPropagation(); // 防止触发卡片点击
                 return;
             }
 
-            // --- 桃宝主屏幕 ---
-            const taobaoScreen = target.closest('#tb-taobao-screen');
-            if (taobaoScreen) {
-                if (target.id === 'tb-clear-taobao-products-btn') { await clearTaobaoProducts(); return; }
-                if (target.id === 'tb-add-product-btn') { openModal('tb-add-product-choice-modal'); return; }
-                if (target.closest('.taobao-tab')) { switchTaobaoView(target.closest('.taobao-tab').dataset.view); return; }
-                if (target.closest('.product-card') && !target.closest('.add-cart-btn')) { openProductDetail(target.closest('.product-card').dataset.productId); return; }
-                if (target.closest('.add-cart-btn')) { await handleAddToCart(target.closest('.add-cart-btn').dataset.productId); return; }
-                if (target.closest('.category-tab-btn')) { await renderTaobaoProducts(target.closest('.category-tab-btn').dataset.category === 'all' ? null : target.closest('.category-tab-btn').dataset.category); return; }
-                if (target.id === 'tb-product-search-btn') { await renderTaobaoProducts(null, getElement('tb-product-search-input').value); return; }
-                if (target.closest('.cart-item')) {
-                    const cartItem = target.closest('.cart-item');
-                    if (target.matches('.quantity-increase')) await handleChangeCartItemQuantity(target.dataset.cartId, 1);
-                    else if (target.matches('.quantity-decrease')) await handleChangeCartItemQuantity(target.dataset.cartId, -1);
-                    else if (target.matches('.delete-cart-item-btn')) await handleRemoveFromCart(target.dataset.cartId);
-                    else openProductDetail(cartItem.dataset.productId);
-                    return;
-                }
-                if (target.id === 'tb-checkout-btn') { await handleCheckout(); return; }
-                if (target.id === 'tb-buy-for-char-btn') { await handleBuyForChar(); return; }
-                if (target.id === 'tb-top-up-btn') {
-                    const amountStr = prompt("请输入充值金额:", "100");
-                    const amount = parseFloat(amountStr);
-                    if (amountStr && !isNaN(amount) && amount > 0) {
-                        await updateUserBalanceAndLogTransaction(amount, '钱包充值');
-                        await renderBalanceDetails();
-                    } else if (amountStr) {
-                        showAlert('请输入有效的金额！');
-                    }
-                    return;
-                }
-                if (target.closest('.order-item') && target.closest('#tb-orders-view')) {
-                    showAlert("物流详情功能正在开发中...");
-                    // openLogisticsView(target.closest('.order-item').dataset.orderId);
-                    return;
-                }
+            // 首页：搜索
+            if (target.id === 'tb-product-search-btn') {
+                renderProducts($('.category-tab-btn.active')?.dataset.cat, $('#tb-product-search-input').value); return;
             }
-
-            // --- 其他屏幕和弹窗 ---
-            if (target.id === 'tb-logistics-back-btn') { showTaobaoScreen('tb-taobao-screen'); return; }
-            if (target.id === 'tb-detail-add-to-cart-btn') { await handleAddToCart(target.dataset.productId); closeModal('tb-product-detail-modal'); return; }
-            if (target.closest('#tb-add-product-choice-modal')) {
-                closeModal('tb-add-product-choice-modal');
-                if (target.id === 'tb-add-product-manual-btn') openProductEditor();
-                else if (target.id === 'tb-add-product-link-btn') openModal('tb-add-from-link-modal');
-                else if (target.id === 'tb-add-product-ai-btn') showAlert("AI生成功能正在开发中...");
+            
+            // 购物车：加减数量
+            if (target.classList.contains('quantity-btn')) {
+                if (target.classList.contains('plus')) {
+                    await db.cart.add({ productId: parseInt(target.dataset.pid) });
+                } else {
+                    const ids = JSON.parse(target.dataset.ids);
+                    if(ids.length > 0) await db.cart.delete(ids[0]); // 删除一个
+                }
+                renderCart(); return;
+            }
+            
+            // 购物车：结算
+            if (target.id === 'tb-checkout-btn') { checkout(); return; }
+            
+            // 我的：充值
+            if (target.id === 'tb-top-up-btn') {
+                const amt = prompt('输入充值金额', '1000');
+                if(amt && !isNaN(amt)) updateBalance(parseFloat(amt), '余额充值');
                 return;
             }
-            if (target.id === 'tb-save-product-btn') { await saveProduct(); return; }
-            if (target.id === 'tb-confirm-link-paste-btn') { showAlert("链接识别功能正在开发中..."); return; }
+            
+            // 头部：打开菜单
+            if (target.dataset.action === 'open-menu') {
+                $('#tb-action-sheet-modal').classList.add('visible'); return;
+            }
+            
+            // 菜单：操作
+            if (target.id === 'tb-menu-add-product') {
+                openProductEditor(); return;
+            }
+            if (target.id === 'tb-menu-clear-data') {
+                if(confirm('确定清空所有商品、订单和记录？余额将保留。')) {
+                    await Promise.all([db.products.clear(), db.cart.clear(), db.orders.clear(), db.transactions.clear()]);
+                    alert('数据已清空');
+                    $('#tb-action-sheet-modal').classList.remove('visible');
+                    switchView(state.currentView); // 刷新当前视图
+                    renderCart(); // 刷新角标
+                }
+                return;
+            }
+            
+            // 编辑器：保存
+            if (target.id === 'tb-save-product-btn') { saveProduct(); return; }
         });
 
-        getElement('tb-product-search-input')?.addEventListener('keydown', async (e) => {
-            if (e.key === 'Enter') await renderTaobaoProducts(null, e.target.value);
+        // 搜索框回车
+        $('#tb-product-search-input').addEventListener('keyup', (e) => {
+            if(e.key === 'Enter') $('#tb-product-search-btn').click();
         });
-        
-        console.log('✅ 桃宝App: 事件监听器已绑定');
     }
 
     // ============================================
     // 第五部分: 初始化与对外接口
     // ============================================
-    
-    async function initTaobaoApp() {
+    async function init() {
         if (isInitialized) return;
-        console.log('🚀 初始化桃宝App (防冲突版)...');
-        
         injectTaobaoStyles();
         createTaobaoAppHTML();
-        if (!setupDatabase()) return; // 如果数据库设置失败则中止
-        await loadInitialData();
+        if (!setupDatabase()) return;
         bindEventListeners();
         
+        // 预加载初始余额
+        const bal = await db.settings.get('balance');
+        if(!bal) await db.settings.put({key: 'balance', value: 2000}); // 默认送2000
+        
+        // 初始化加载一次购物车角标
+        renderCart();
+
         isInitialized = true;
-        console.log('✅ 桃宝App 初始化完成');
     }
 
-    async function launchTaobaoApp() {
-        if (!isInitialized) {
-            await initTaobaoApp();
-        }
-        showTaobaoScreen('tb-taobao-screen');
-        if (state.currentView !== 'tb-products-view') {
-            switchTaobaoView('tb-products-view');
-        } else {
-            await renderTaobaoProducts();
-        }
-        updateCartBadge();
-        updateUserBalanceDisplay();
+    window.launchTaobaoApp = async function() {
+        await init();
+        $('#tb-main-screen').style.display = 'flex';
+        switchView('tb-products-view'); // 默认打开首页
     }
-
-    window.launchTaobaoApp = launchTaobaoApp;
 
 })(window);
