@@ -909,6 +909,20 @@
         logisticsUpdateTimers: []
     };
 
+    // ▼▼▼ 【新增】物流时间线模板，来自你的源代码 ▼▼▼
+    const logisticsTimelineTemplate = [
+        { text: '您的订单已提交', delay: 1000 * 2 },
+        { text: '付款成功，等待商家打包', delay: 1000 * 10 },
+        { text: '【{city}仓库】已打包，等待快递揽收', delay: 1000 * 15 }, // 为演示效果缩短时间
+        { text: '【{city}快递】已揽收', delay: 1000 * 25 },
+        { text: '快件已到达【{city}分拨中心】', delay: 1000 * 40 },
+        { text: '【{city}分拨中心】已发出，下一站【{next_city}】', delay: 1000 * 60 },
+        { text: '快件已到达【{user_city}转运中心】', delay: 1000 * 80 },
+        { text: '快件正在派送中，派送员：兔兔快递员，电话：123-4567-8910', delay: 1000 * 100 },
+        { text: '您的快件已签收，感谢您在桃宝购物！', delay: 1000 * 120 },
+    ];
+    // ▲▲▲ 新增结束 ▲▲▲
+
     // --- 数据库设置 ---
     function setupDatabase() {
         // 使用独立数据库名，避免与 pp.js 的 XSocialDB 冲突
@@ -925,16 +939,19 @@
         });
     }
 
-    // --- 弹窗与视图管理 ---
+    // ▼▼▼ 【核心修改】showTaobaoScreen 函数现在可以处理物流屏幕了 ▼▼▼
     function showTaobaoScreen(screenId) {
         const screens = ['taobao-screen', 'logistics-screen'];
+        const container = document.getElementById('taobao-app-container');
         screens.forEach(id => {
-            const screen = document.getElementById(id);
+            const screen = container.querySelector('#' + id);
             if (screen) {
-                screen.style.display = (id === screenId) ? 'flex' : 'none';
+                // 不再使用 display, 而是用 active class 控制
+                screen.classList.toggle('active', id === screenId);
             }
         });
     }
+    // ▲▲▲ 修改结束 ▲▲▲
     
     function showModal(modalId) {
         const modal = document.getElementById(modalId);
@@ -1070,9 +1087,7 @@
         updateCartBadge();
     }
 
-    /**
-     * 渲染订单列表
-     */
+    // ▼▼▼ 【核心修改】renderTaobaoOrders 现在会为每个订单项添加 data-order-id ▼▼▼
     async function renderTaobaoOrders() {
         const orderListEl = document.getElementById('order-list');
         orderListEl.innerHTML = '';
@@ -1089,18 +1104,19 @@
 
             const itemEl = document.createElement('div');
             itemEl.className = 'order-item';
-            itemEl.dataset.orderId = order.id;
+            itemEl.dataset.orderId = order.id; // 【重要】为点击事件提供订单ID
             itemEl.innerHTML = `
                 <img src="${product.imageUrl}" class="product-image">
                 <div class="order-info">
                     <div class="product-name">${product.name}</div>
-                    <div class="order-status" id="status-${order.orderNumber}">订单已提交</div>
+                    <div class="order-status" id="status-${order.orderNumber}">${order.status}</div>
                     <div class="order-time">${new Date(order.timestamp).toLocaleString()}</div>
                 </div>
             `;
             orderListEl.appendChild(itemEl);
         }
     }
+    // ▲▲▲ 修改结束 ▲▲▲
     
     /**
      * 渲染余额明细
@@ -1431,7 +1447,119 @@
             await renderTaobaoCart();
         }
     }
+// ▼▼▼ 【核心新增】这里是所有与物流功能相关的全新函数 ▼▼▼
 
+    /**
+     * 【总入口】打开物流详情页面
+     * @param {number} orderId - 要查看的订单的ID
+     */
+    async function openLogisticsView(orderId) {
+        // 1. 清除上一次可能还在运行的旧计时器
+        state.logisticsUpdateTimers.forEach(timerId => clearTimeout(timerId));
+        state.logisticsUpdateTimers = [];
+
+        const order = await db.taobaoOrders.get(orderId);
+        if (!order) {
+            alert('找不到该订单信息。');
+            return;
+        }
+
+        // 2. 切换到物流屏幕
+        showTaobaoScreen('logistics-screen');
+        
+        // 3. 开始渲染物流详情内容
+        await renderLogisticsView(order);
+    }
+
+    /**
+     * 渲染物流详情页面的所有内容
+     * @param {object} order - 订单数据对象
+     */
+    async function renderLogisticsView(order) {
+        const contentArea = document.getElementById('logistics-content-area');
+        contentArea.innerHTML = '<p>正在加载物流信息...</p>'; // 初始提示
+
+        const product = await db.taobaoProducts.get(order.productId);
+        if (!product) {
+            contentArea.innerHTML = '<p>加载商品信息失败。</p>';
+            return;
+        }
+        
+        // 1. 构建顶部的商品摘要和时间轴容器
+        contentArea.innerHTML = `
+            <div class="logistics-product-summary">
+                <img src="${product.imageUrl}" class="product-image">
+                <div class="info">
+                    <div class="name">${product.name}</div>
+                    <div class="status" id="main-logistics-status">等待揽收</div>
+                </div>
+            </div>
+            <div class="logistics-timeline">
+                <!-- 物流步骤将在这里动态添加 -->
+            </div>
+        `;
+
+        const timelineContainer = contentArea.querySelector('.logistics-timeline');
+        const mainStatusEl = document.getElementById('main-logistics-status');
+        
+        // 2. 模拟城市数据
+        const cities = ['广州', '长沙', '武汉', '郑州', '北京', '上海'];
+        const city = cities[Math.floor(Math.random() * cities.length)];
+        const next_city = cities[Math.floor(Math.random() * cities.length)];
+        const user_city = "你的城市";
+
+        // 3. 遍历时间线模板，设置一系列的定时器来模拟物流更新
+        let cumulativeDelay = 0;
+        logisticsTimelineTemplate.forEach((step, index) => {
+            cumulativeDelay += step.delay;
+            
+            const timerId = setTimeout(() => {
+                const formattedText = step.text
+                    .replace('{city}', city)
+                    .replace('{next_city}', next_city)
+                    .replace('{user_city}', user_city);
+                
+                const isFirstStep = timelineContainer.children.length === 0;
+                addLogisticsStep(timelineContainer, mainStatusEl, formattedText, new Date(), isFirstStep);
+
+                // 更新订单在数据库中的状态
+                db.taobaoOrders.update(order.id, { status: formattedText.split('，')[0] });
+
+            }, cumulativeDelay);
+
+            // 4. 将所有定时器的ID存入全局数组，方便离开页面时统一清除
+            state.logisticsUpdateTimers.push(timerId);
+        });
+    }
+
+    /**
+     * 在时间轴上添加一个物流步骤
+     */
+    function addLogisticsStep(container, mainStatusEl, text, timestamp, isFirst) {
+        // 移除所有旧的 'active' 状态
+        container.querySelectorAll('.logistics-step').forEach(el => el.classList.remove('active'));
+
+        const stepEl = document.createElement('div');
+        stepEl.className = 'logistics-step';
+        
+        const timeStr = `${String(timestamp.getHours()).padStart(2, '0')}:${String(timestamp.getMinutes()).padStart(2, '0')}`;
+        const dateStr = `${String(timestamp.getMonth() + 1).padStart(2, '0')}-${String(timestamp.getDate()).padStart(2, '0')}`;
+
+        stepEl.innerHTML = `
+            <div class="logistics-step-content">
+                <div class="status-text">${text}</div>
+                <div class="timestamp">${dateStr} ${timeStr}</div>
+            </div>
+        `;
+        
+        // 最新的消息总是在最前面
+        container.prepend(stepEl);
+        
+        // 更新顶部的总状态
+        mainStatusEl.textContent = text.split('，')[0];
+    }
+    
+    // ▲▲▲ 新增结束 ▲▲▲
     // ============================================
     // 第四部分: 初始化和事件绑定 (已更新)
     // ============================================
@@ -1443,7 +1571,17 @@
         container.addEventListener('click', e => {
             const target = e.target;
 
-            // 主返回按钮 - 已在initTaobaoApp中处理
+            // ▼▼▼ 【核心新增】物流页面的返回按钮事件 ▼▼▼
+            if (target.id === 'logistics-back-btn') {
+                showTaobaoScreen('taobao-screen'); // 返回主应用屏幕
+                // 【重要】清除所有正在运行的物流更新计时器，防止内存泄漏
+                state.logisticsUpdateTimers.forEach(timerId => clearTimeout(timerId));
+                state.logisticsUpdateTimers = [];
+                // 返回后刷新一下订单列表，以显示最新的状态
+                renderTaobaoOrders();
+                return;
+            }
+            // ▲▲▲ 新增结束 ▲▲▲
             
             // 页签切换
             const tab = target.closest('.taobao-tab');
@@ -1524,10 +1662,20 @@
             if (target.id === 'add-product-ai-btn') { hideModal('add-product-choice-modal'); handleGenerateProductsAI(); }
             if (target.id === 'save-product-btn') saveProduct();
             if (target.id === 'confirm-link-paste-btn') handleAddFromLink();
+
+             // ▼▼▼ 【核心新增】订单列表的点击事件 ▼▼▼
+             const orderItem = target.closest('.order-item');
+             if (orderItem && orderItem.closest('#orders-view')) {
+                 const orderId = parseInt(orderItem.dataset.orderId);
+                 if(!isNaN(orderId)) {
+                     openLogisticsView(orderId);
+                 }
+             }
+             // ▲▲▲ 新增结束 ▲▲▲
         });
     }
 
-    // ▼▼▼ 【最终修复版】替换掉旧的initTaobaoApp, launchTaobaoApp 和自动初始化代码 ▼▼▼
+ 
     
     // 暴露一个启动器给外部的 showScreen 函数调用
     window.showTaobaoAppScreen = function() {
@@ -1585,5 +1733,3 @@
     console.log('📦 Taobao App 模块已加载 (showScreen 兼容模式)');
 
 })(window);
-
-// ▲▲▲ 替换到这里结束 ▲▲▲
