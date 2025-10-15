@@ -814,7 +814,7 @@
             </div>
 
             <!-- ▼▼▼ 物流详情页面 ▼▼▼ -->
-            <div id="logistics-screen" class="screen" style="display:none;">
+            <div id="logistics-screen" class="screen">
                 <div class="header">
                     <span class="back-btn" id="logistics-back-btn">‹</span>
                     <span>物流详情</span>
@@ -938,6 +938,31 @@
             console.error("无法打开数据库: " + err.stack || err);
         });
     }
+/**
+     * 植入初始数据 (仅在数据库为空时运行)
+     */
+async function seedInitialData() {
+    const productCount = await db.taobaoProducts.count();
+    // 只有当商品数量为0时，才添加默认商品
+    if (productCount === 0) {
+        console.log('数据库为空，正在植入初始商品数据...');
+        await db.taobaoProducts.bulkAdd([
+            { 
+                name: "赛博朋克风机能冲锋衣", 
+                price: 399.00, 
+                imageUrl: "https://i.postimg.cc/C1jH8JzT/a.jpg", 
+                category: "服饰" 
+            },
+            { 
+                name: "猫咪太空舱双肩包", 
+                price: 188.00, 
+                imageUrl: "https://i.postimg.cc/pr0TgtwV/b.jpg", 
+                category: "宠物用品" 
+            }
+        ]);
+    }
+}
+
 
     // ▼▼▼ 【核心修改】showTaobaoScreen 函数现在可以处理物流屏幕了 ▼▼▼
     function showTaobaoScreen(screenId) {
@@ -1714,7 +1739,11 @@
 
         bindEventListeners();
         setupDatabase();
-        
+
+        // ▼▼▼ 在这里调用数据植入函数 ▼▼▼
+        await seedInitialData(); 
+        // ▲▲▲ 修改结束 ▲▲▲
+
         await updateUserBalanceDisplay();
         await renderTaobaoProducts();
         await updateCartBadge();
