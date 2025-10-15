@@ -925,15 +925,32 @@
 
     // --- 数据库设置 ---
     function setupDatabase() {
-        // 使用独立数据库名，避免与 pp.js 的 XSocialDB 冲突
         db = new Dexie('TaobaoAppDB');
+        // 版本升级到 2
+        db.version(2).stores({
+            taobaoProducts: '++id, name, category',
+            // 新增 logisticsHistory 字段
+            taobaoOrders: '++id, &orderNumber, timestamp, status, logisticsHistory', 
+            taobaoCart: '++id, productId',
+            userWalletTransactions: '++id, timestamp',
+            globalSettings: 'id'
+        }).upgrade(tx => {
+            // Dexie的升级函数，用于处理旧版本数据的迁移
+            // 这里我们给所有旧订单加上一个空的 logisticsHistory 数组
+            return tx.table("taobaoOrders").toCollection().modify(order => {
+                order.logisticsHistory = [];
+            });
+        });
+        
+        // 保留旧版本定义，以防用户浏览器中存在旧版本数据库
         db.version(1).stores({
             taobaoProducts: '++id, name, category',
             taobaoOrders: '++id, &orderNumber, timestamp',
             taobaoCart: '++id, productId',
             userWalletTransactions: '++id, timestamp',
-            globalSettings: 'id' // 用来存储余额等全局信息
+            globalSettings: 'id'
         });
+
         db.open().catch(err => {
             console.error("无法打开数据库: " + err.stack || err);
         });
@@ -963,8 +980,6 @@ async function seedInitialData() {
     }
 }
 
-
-    // ▼▼▼ 【核心修改】showTaobaoScreen 函数现在可以处理物流屏幕了 ▼▼▼
     function showTaobaoScreen(screenId) {
         const screens = ['taobao-screen', 'logistics-screen'];
         const container = document.getElementById('taobao-app-container');
@@ -976,8 +991,7 @@ async function seedInitialData() {
             }
         });
     }
-    // ▲▲▲ 修改结束 ▲▲▲
-    
+  
     function showModal(modalId) {
         const modal = document.getElementById(modalId);
         if (modal) modal.classList.add('visible');
@@ -1234,8 +1248,9 @@ async function seedInitialData() {
                 newOrders.push({
                     orderNumber: `TB${timestamp}${item.productId}${i}`,
                     productId: item.productId,
-                    timestamp: timestamp + i, // 稍微错开时间以保证唯一性
-                    status: '订单已提交'
+                    timestamp: timestamp + i,
+                    status: '订单已提交',
+                    logisticsHistory: [] // 【重要】初始化为空数组
                 });
             }
         }
@@ -1476,41 +1491,31 @@ async function seedInitialData() {
 
     /**
      * 【总入口】打开物流详情页面
-     * @param {number} orderId - 要查看的订单的ID
      */
     async function openLogisticsView(orderId) {
-        // 1. 清除上一次可能还在运行的旧计时器
         state.logisticsUpdateTimers.forEach(timerId => clearTimeout(timerId));
         state.logisticsUpdateTimers = [];
-
         const order = await db.taobaoOrders.get(orderId);
         if (!order) {
             alert('找不到该订单信息。');
             return;
         }
-
-        // 2. 切换到物流屏幕
         showTaobaoScreen('logistics-screen');
-        
-        // 3. 开始渲染物流详情内容
         await renderLogisticsView(order);
     }
 
     /**
-     * 渲染物流详情页面的所有内容
-     * @param {object} order - 订单数据对象
+     * 【重构后】渲染物流详情页面的所有内容
      */
     async function renderLogisticsView(order) {
         const contentArea = document.getElementById('logistics-content-area');
-        contentArea.innerHTML = '<p>正在加载物流信息...</p>'; // 初始提示
-
+        contentArea.innerHTML = '<p>正在加载物流信息...</p>';
         const product = await db.taobaoProducts.get(order.productId);
         if (!product) {
             contentArea.innerHTML = '<p>加载商品信息失败。</p>';
             return;
         }
         
-        // 1. 构建顶部的商品摘要和时间轴容器
         contentArea.innerHTML = `
             <div class="logistics-product-summary">
                 <img src="${product.imageUrl}" class="product-image">
@@ -1519,72 +1524,93 @@ async function seedInitialData() {
                     <div class="status" id="main-logistics-status">等待揽收</div>
                 </div>
             </div>
-            <div class="logistics-timeline">
-                <!-- 物流步骤将在这里动态添加 -->
-            </div>
+            <div class="logistics-timeline"></div>
         `;
-
-        const timelineContainer = contentArea.querySelector('.logistics-timeline');
-        const mainStatusEl = document.getElementById('main-logistics-status');
         
-        // 2. 模拟城市数据
+        // 【逻辑分叉】检查是否存在历史记录
+        if (order.logisticsHistory && order.logisticsHistory.length > 0) {
+            // 如果有历史，直接渲染，不播放动画
+            renderLogisticsFromHistory(order.logisticsHistory);
+        } else {
+            // 如果没有历史，开始模拟生成
+            simulateAndSaveLogistics(order);
+        }
+    }
+
+    /**
+     * 【新函数】从已有的历史记录中渲染物流时间轴
+     */
+    function renderLogisticsFromHistory(history) {
+        const timelineContainer = document.querySelector('#logistics-content-area .logistics-timeline');
+        const mainStatusEl = document.getElementById('main-logistics-status');
+        timelineContainer.innerHTML = ''; // 清空
+
+        // 直接遍历历史记录并添加
+        history.forEach(step => {
+            addLogisticsStep(timelineContainer, mainStatusEl, step.text, new Date(step.timestamp));
+        });
+    }
+
+    /**
+     * 【新函数】模拟生成物流信息，并保存到数据库
+     */
+    function simulateAndSaveLogistics(order) {
+        const timelineContainer = document.querySelector('#logistics-content-area .logistics-timeline');
+        const mainStatusEl = document.getElementById('main-logistics-status');
         const cities = ['广州', '长沙', '武汉', '郑州', '北京', '上海'];
         const city = cities[Math.floor(Math.random() * cities.length)];
         const next_city = cities[Math.floor(Math.random() * cities.length)];
         const user_city = "你的城市";
-
-        // 3. 遍历时间线模板，设置一系列的定时器来模拟物流更新
+        
         let cumulativeDelay = 0;
-        logisticsTimelineTemplate.forEach((step, index) => {
-            cumulativeDelay += step.delay;
+        let currentHistory = [];
+
+        logisticsTimelineTemplate.forEach(stepTemplate => {
+            cumulativeDelay += stepTemplate.delay;
             
-            const timerId = setTimeout(() => {
-                const formattedText = step.text
+            const timerId = setTimeout(async () => {
+                const timestamp = Date.now();
+                const formattedText = stepTemplate.text
                     .replace('{city}', city)
                     .replace('{next_city}', next_city)
                     .replace('{user_city}', user_city);
                 
-                const isFirstStep = timelineContainer.children.length === 0;
-                addLogisticsStep(timelineContainer, mainStatusEl, formattedText, new Date(), isFirstStep);
+                // 1. 更新UI
+                addLogisticsStep(timelineContainer, mainStatusEl, formattedText, new Date(timestamp));
 
-                // 更新订单在数据库中的状态
-                db.taobaoOrders.update(order.id, { status: formattedText.split('，')[0] });
+                // 2. 更新本地历史记录
+                currentHistory.push({ text: formattedText, timestamp: timestamp });
+                
+                // 3. 【关键】将更新后的完整历史记录保存回数据库
+                await db.taobaoOrders.update(order.id, {
+                    status: formattedText.split('，')[0],
+                    logisticsHistory: currentHistory 
+                });
 
             }, cumulativeDelay);
 
-            // 4. 将所有定时器的ID存入全局数组，方便离开页面时统一清除
             state.logisticsUpdateTimers.push(timerId);
         });
     }
 
     /**
-     * 在时间轴上添加一个物流步骤
+     * 在时间轴上添加一个物流步骤 (保持不变，但现在是纯UI操作)
      */
-    function addLogisticsStep(container, mainStatusEl, text, timestamp, isFirst) {
-        // 移除所有旧的 'active' 状态
+    function addLogisticsStep(container, mainStatusEl, text, timestamp) {
         container.querySelectorAll('.logistics-step').forEach(el => el.classList.remove('active'));
-
         const stepEl = document.createElement('div');
         stepEl.className = 'logistics-step';
-        
         const timeStr = `${String(timestamp.getHours()).padStart(2, '0')}:${String(timestamp.getMinutes()).padStart(2, '0')}`;
         const dateStr = `${String(timestamp.getMonth() + 1).padStart(2, '0')}-${String(timestamp.getDate()).padStart(2, '0')}`;
-
         stepEl.innerHTML = `
             <div class="logistics-step-content">
                 <div class="status-text">${text}</div>
                 <div class="timestamp">${dateStr} ${timeStr}</div>
-            </div>
-        `;
-        
-        // 最新的消息总是在最前面
+            </div>`;
         container.prepend(stepEl);
-        
-        // 更新顶部的总状态
         mainStatusEl.textContent = text.split('，')[0];
     }
-    
-    // ▲▲▲ 新增结束 ▲▲▲
+    // ▲▲▲ 修改结束 ▲▲▲
     // ============================================
     // 第四部分: 初始化和事件绑定 (已更新)
     // ============================================
