@@ -1872,9 +1872,9 @@ async function handleBuyForChar() {
 }
 // ▲▲▲ 替换结束 ▲▲▲
 
-// ▼▼▼ 【请将这个【缺失的】函数】粘贴到 handleBuyForChar 函数的旁边 ▼▼▼
+// ▼▼▼ 【请用这个新版本】完整替换旧的 handleShareCartRequest 函数 ▼▼▼
 /**
- * 【全新】处理“分享给Ta代付”的全部逻辑
+ * 【全新 V2.0】处理“分享给Ta代付”的全部逻辑
  */
 async function handleShareCartRequest() {
     // 1. 检查与 EPhone 系统的连接
@@ -1901,18 +1901,19 @@ async function handleShareCartRequest() {
         }
     });
 
-    // 5. 构造对用户可见的“卡片消息”
+    // 5. 【核心修改】构造对用户可见的“卡片消息”，现在包含了 cartItems
     const visibleMessage = {
-        type: 'cart_share_request', // EPhone会识别这个类型来渲染卡片
+        type: 'cart_share_request',
         payload: {
-            senderName: '我', // 在对方看来，发送者是'我'
+            senderName: '我',
             totalPrice: totalPrice,
-            itemCount: cartItems.length,
+            itemCount: cartItems.reduce((sum, item) => sum + item.quantity, 0),
+            cartItems: cartItems // 把购物车详情一起发过去！
         }
     };
 
-    // 6. 构造给AI看的、隐藏的“系统指令”
-    const hiddenPrompt = `[系统指令：用户向你发送了一个购物车代付请求，总金额为 ${totalPrice.toFixed(2)} 元。请根据你的人设，决定是为TA支付还是拒绝，并作出回应。]`;
+    // 6. 构造给AI看的、隐藏的“系统指令”，并教它使用新指令
+    const hiddenPrompt = `[系统指令：用户向你发送了一个购物车代付请求，总金额为 ${totalPrice.toFixed(2)} 元。请根据你的人设，决定是为TA支付还是拒绝，并使用 'pay_for_request' 指令作出回应。]`;
     
     // 7. 调用EPhone的全局API发送消息
     await window.sendSystemMessageToChat(targetChatId, visibleMessage, hiddenPrompt);
@@ -1921,7 +1922,7 @@ async function handleShareCartRequest() {
     await window.showEPhoneAlert("发送成功", "你的代付请求已发送，请到聊天中查看对方的回应吧！");
     document.getElementById('taobao-app-container').classList.remove('active');
 }
-// ▲▲▲ 粘贴结束 ▲▲▲
+// ▲▲▲ 替换结束 ▲▲▲
     // ============================================
     // 第四部分: 初始化和事件绑定 (已更新)
     // ============================================
@@ -2054,5 +2055,39 @@ window.showTaobaoAppScreen = function() {
 
     window.taobaoAppInitialized = true;
     console.log('📦 Taobao App 模块已加载 (showScreen 兼容模式)');
+
+    // ▼▼▼ 【这是新代码】请把它粘贴到 taobao-app.js 文件的最末尾，就在 `})(window);` 这一行的前面 ▼▼▼
+
+/**
+ * 【全局API桥接】更新桃宝用户余额
+ */
+window.updateTaobaoUserBalance = async function(amount, description) {
+    // 这个函数会调用我们桃宝App内部的余额更新逻辑
+    if (typeof updateUserBalanceAndLogTransaction === 'function') {
+        await updateUserBalanceAndLogTransaction(amount, description);
+    }
+};
+
+/**
+ * 【全局API桥接】根据购物车内容创建订单
+ */
+window.createTaobaoOrdersFromCart = async function(cartItems) {
+    if (typeof createOrdersFromCart === 'function') {
+        await createOrdersFromCart(cartItems);
+    }
+};
+
+/**
+ * 【全局API桥接】清空桃宝购物车
+ */
+window.clearTaobaoCart = async function() {
+    if (db && db.taobaoCart) {
+        await db.taobaoCart.clear();
+        // 清空后，也别忘了更新UI
+        if (typeof renderTaobaoCart === 'function') await renderTaobaoCart();
+    }
+};
+
+// ▲▲▲ 新代码粘贴结束 ▲▲▲
 
 })(window);
