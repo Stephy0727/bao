@@ -925,22 +925,25 @@
 
     // --- 数据库设置 ---
     function setupDatabase() {
-        db = new Dexie('TaobaoAppDB');
-        // 版本升级到 2
-        db.version(2).stores({
-            taobaoProducts: '++id, name, category',
-            // 新增 logisticsHistory 字段
-            taobaoOrders: '++id, &orderNumber, timestamp, status, logisticsHistory', 
-            taobaoCart: '++id, productId',
-            userWalletTransactions: '++id, timestamp',
-            globalSettings: 'id'
-        }).upgrade(tx => {
-            // Dexie的升级函数，用于处理旧版本数据的迁移
-            // 这里我们给所有旧订单加上一个空的 logisticsHistory 数组
-            return tx.table("taobaoOrders").toCollection().modify(order => {
+    db = new Dexie('TaobaoAppDB');
+    // 版本升级到 2，为订单添加 status 和 logisticsHistory 字段
+    db.version(2).stores({
+        taobaoProducts: '++id, name, category',
+        taobaoOrders: '++id, &orderNumber, timestamp, status, logisticsHistory', 
+        taobaoCart: '++id, productId',
+        userWalletTransactions: '++id, timestamp',
+        globalSettings: 'id'
+    }).upgrade(tx => {
+        // 这个升级函数会自动给所有旧订单加上一个空的 logisticsHistory 数组
+        return tx.table("taobaoOrders").toCollection().modify(order => {
+            if (order.logisticsHistory === undefined) {
                 order.logisticsHistory = [];
-            });
+            }
+            if (order.status === undefined) {
+                order.status = '订单已提交';
+            }
         });
+    });
         
         // 保留旧版本定义，以防用户浏览器中存在旧版本数据库
         db.version(1).stores({
@@ -1781,17 +1784,32 @@ async function seedInitialData() {
 
  
     
-    // 暴露一个启动器给外部的 showScreen 函数调用
-    window.showTaobaoAppScreen = function() {
-        const container = document.getElementById('taobao-app-container');
-        if (container) {
-            container.classList.add('active'); // 使用 classList.add('active') 来显示
-            updateUserBalanceDisplay();
-            renderTaobaoProducts();
-            updateCartBadge();
-            switchTaobaoView('products-view');
-        }
-    };
+    // ▼▼▼ 【核心修改1】使用这个全新的、更健壮的启动器 ▼▼▼
+let isTaobaoAppInitialized = false;
+
+window.launchTaobaoApp = async function() {
+    const container = document.getElementById('taobao-app-container');
+
+    // 1. 如果从未初始化过，则执行完整的初始化流程
+    if (!isTaobaoAppInitialized) {
+        await initTaobaoApp(); // initTaobaoApp 内部已经包含了首次渲染
+        isTaobaoAppInitialized = true;
+    }
+
+    // 2. 无论是否首次，都执行显示操作
+    if (container) {
+        // 使用 flex 代替 active 类，更直接
+        container.style.display = 'flex';
+        
+        // 确保每次打开时，都重置到首页视图
+        switchTaobaoView('products-view');
+
+        // 可以选择性地刷新一些轻量数据
+        updateCartBadge();
+        updateUserBalanceDisplay();
+    }
+};
+// ▲▲▲ 修改结束 ▲▲▲
 
      // ▼▼▼ 【核心修改5】在初始化函数中，启动全局后台处理器 ▼▼▼
      async function initTaobaoApp() {
@@ -1823,14 +1841,5 @@ async function seedInitialData() {
     }
     // ▲▲▲ 修改结束 ▲▲▲
     
-    // 自动初始化
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', initTaobaoApp);
-    } else {
-        initTaobaoApp();
-    }
-
-    window.taobaoAppInitialized = true;
-    console.log('📦 Taobao App 模块已加载 (showScreen 兼容模式)');
 
 })(window);
