@@ -2011,8 +2011,6 @@ if (productCard && !addCartBtn && !productCard.closest('#ai-product-results-grid
             if (target.id === 'add-product-ai-btn') { hideModal('add-product-choice-modal'); handleGenerateProductsAI(); }
             if (target.id === 'save-product-btn') saveProduct();
             if (target.id === 'confirm-link-paste-btn') handleAddFromLink();
-
-             // ▼▼▼ 【核心新增】订单列表的点击事件 ▼▼▼
              const orderItem = target.closest('.order-item');
              if (orderItem && orderItem.closest('#orders-view')) {
                  const orderId = parseInt(orderItem.dataset.orderId);
@@ -2020,14 +2018,12 @@ if (productCard && !addCartBtn && !productCard.closest('#ai-product-results-grid
                      openLogisticsView(orderId);
                  }
              }
-             // ▲▲▲ 新增结束 ▲▲▲
         });
     }
 
  
     
     // 暴露一个启动器给外部的 showScreen 函数调用
-    // ▼▼▼ 这是【修改后】的正确代码 ▼▼▼
 window.showTaobaoAppScreen = function() {
     const container = document.getElementById('taobao-app-container');
     if (container) {
@@ -2038,8 +2034,6 @@ window.showTaobaoAppScreen = function() {
         switchTaobaoView('products-view'); // 只保留这一句，它会负责渲染首页
     }
 };
-
-     // ▼▼▼ 【核心修改5】在初始化函数中，启动全局后台处理器 ▼▼▼
      async function initTaobaoApp() {
         injectTaobaoStyles();
         createTaobaoHTML();
@@ -2067,9 +2061,15 @@ window.showTaobaoAppScreen = function() {
 
         console.log('🚀 Taobao App 初始化完成，后台物流处理器已启动。');
     }
-    // ▲▲▲ 修改结束 ▲▲▲
-    
-    // 自动初始化
+// ▼▼▼ 【核心修改】在事件委托中添加对新按钮的处理 ▼▼▼
+if (e.target.id === 'share-cart-to-char-btn') {
+    handleShareCartRequest();
+}
+if (e.target.id === 'buy-for-char-btn') {
+    handleBuyForChar();
+}
+// ▲▲▲ 修改结束 ▲▲▲    
+
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', initTaobaoApp);
     } else {
