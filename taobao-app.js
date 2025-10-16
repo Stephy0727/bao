@@ -907,6 +907,7 @@
         currentCategory: null,
         currentEditingProductId: null,
         logisticsUpdateTimers: []
+        orderUpdateInterval: null // 【核心新增1】用于存储订单列表的更新定时器
     };
 
     // ▼▼▼ 【新增】物流时间线模板，来自你的源代码 ▼▼▼
@@ -1027,20 +1028,43 @@ async function seedInitialData() {
         const modal = document.getElementById(modalId);
         if (modal) modal.classList.remove('visible');
     }
+    
+    // ▼▼▼ 【核心新增2】一个专门用来停止订单更新的辅助函数 ▼▼▼
+    function stopOrderUpdates() {
+        if (state.orderUpdateInterval) {
+            clearInterval(state.orderUpdateInterval);
+            state.orderUpdateInterval = null;
+            console.log('订单列表实时更新已停止。');
+        }
+    }
+    // ▲▲▲ 新增结束 ▲▲▲
 
+    
+
+    // ▼▼▼ 【核心修改3】改造视图切换函数，实现定时器的智能启停 ▼▼▼
     function switchTaobaoView(viewId) {
+        // 任何视图切换前，都先停止订单更新，确保只有一个定时器在运行
+        stopOrderUpdates();
+
         document.querySelectorAll('#taobao-app-container .taobao-view').forEach(v => v.classList.remove('active'));
         document.getElementById(viewId).classList.add('active');
+        document.querySelectorAll('#taobao-app-container .taobao-tab').forEach(t => t.classList.toggle('active', t.dataset.view === viewId));
 
-        document.querySelectorAll('#taobao-app-container .taobao-tab').forEach(t => {
-            t.classList.toggle('active', t.dataset.view === viewId);
-        });
-
-        if (viewId === 'orders-view') renderTaobaoOrders();
-        else if (viewId === 'my-view') renderBalanceDetails();
-        else if (viewId === 'cart-view') renderTaobaoCart();
-        else if (viewId === 'products-view') renderTaobaoProducts();
+        // 根据新视图决定下一步操作
+        if (viewId === 'orders-view') {
+            renderTaobaoOrders(); // 先立即渲染一次
+            // 然后启动定时器，每5秒刷新一次订单列表
+            state.orderUpdateInterval = setInterval(renderTaobaoOrders, 5000); 
+            console.log('订单列表实时更新已启动 (5秒/次)。');
+        } else if (viewId === 'my-view') {
+            renderBalanceDetails();
+        } else if (viewId === 'cart-view') {
+            renderTaobaoCart();
+        } else if (viewId === 'products-view') {
+            renderTaobaoProducts();
+        }
     }
+    // ▲▲▲ 修改结束 ▲▲▲
     
     // --- 数据渲染与更新 ---
 
@@ -1521,6 +1545,9 @@ async function seedInitialData() {
      * 【总入口】打开物流详情页面
      */
     async function openLogisticsView(orderId) {
+        // 停止订单列表的轮询
+        stopOrderUpdates(); 
+
         state.logisticsUpdateTimers.forEach(timerId => clearTimeout(timerId));
         state.logisticsUpdateTimers = [];
         const order = await db.taobaoOrders.get(orderId);
@@ -1772,36 +1799,32 @@ async function seedInitialData() {
     async function initTaobaoApp() {
         injectTaobaoStyles();
         createTaobaoHTML();
+        setupDatabase();
+        bindEventListeners();
         
         const styleTag = document.getElementById('taobao-app-styles');
         if (styleTag) {
-            styleTag.textContent = styleTag.textContent.replace(
-                '#taobao-app-container {', 
-                '#taobao-app-container.screen {'
-            ).replace(
-                'display: none;',
-                ''
-            );
+            styleTag.textContent = styleTag.textContent.replace('#taobao-app-container {', '#taobao-app-container.screen {').replace('display: none;', '');
         }
 
         const mainBackButton = document.getElementById('taobao-main-back-btn');
         if(mainBackButton) {
-            mainBackButton.onclick = () => window.showScreen('home-screen');
+            mainBackButton.onclick = () => {
+                // 退出App时，也要停止所有更新
+                stopOrderUpdates(); 
+                state.logisticsUpdateTimers.forEach(timerId => clearTimeout(timerId));
+                window.showScreen('home-screen');
+            };
         }
-
-        bindEventListeners();
-        setupDatabase();
-
-        // ▼▼▼ 在这里调用数据植入函数 ▼▼▼
+        
         await seedInitialData(); 
-        // ▲▲▲ 修改结束 ▲▲▲
-
         await updateUserBalanceDisplay();
         await renderTaobaoProducts();
         await updateCartBadge();
         
-        console.log('🚀 Taobao App 初始化完成 (showScreen 兼容模式)');
+        console.log('🚀 Taobao App 初始化完成 (最终版)');
     }
+    // ▲▲▲ 修改结束 ▲▲▲
     
     // 自动初始化
     if (document.readyState === 'loading') {
