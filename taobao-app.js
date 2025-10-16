@@ -1771,45 +1771,50 @@ function switchTaobaoView(viewId) {
         container.prepend(stepEl);
         mainStatusEl.textContent = text.split('，')[0];
     }
-    /**
-     * 【全新】显示好友选择器, 并返回一个Promise
-     * @returns {Promise<string|null>} 用户选择的好友chatId, 或在取消时返回null
-     */
-    function showCharSelector() {
-        return new Promise(async (resolve) => {
-            if (typeof window.getEPhoneChatList !== 'function') {
-                alert("错误: 无法连接到EPhone系统来获取好友列表。");
-                return resolve(null);
-            }
 
-            const friends = window.getEPhoneChatList();
-            const modal = document.getElementById('taobao-char-selector-modal');
-            const listEl = document.getElementById('taobao-char-selector-list');
-            listEl.innerHTML = '';
+/**
+ * 【全新】显示好友选择器, 并返回一个Promise
+ * @returns {Promise<string|null>} 用户选择的好友chatId, 或在取消时返回null
+ */
+function showCharSelector() {
+    return new Promise(async (resolve) => { // 这里的 async 是必须的
+        if (typeof window.getEPhoneChatList !== 'function') {
+            alert("错误: 无法连接到EPhone系统来获取好友列表。");
+            return resolve(null);
+        }
 
-            if (friends.length === 0) {
-                listEl.innerHTML = '<p style="text-align:center; padding: 30px; color: #888;">你的好友列表是空的哦~</p>';
-            } else {
-                friends.forEach(friend => {
-                    const item = document.createElement('div');
-                    item.className = 'char-selector-item';
-                    item.innerHTML = `<img src="${friend.settings.aiAvatar || ''}" class="avatar"><span class="name">${friend.name}</span>`;
-                    item.onclick = () => {
-                        hideModal('taobao-char-selector-modal');
-                        resolve(friend.id); 
-                    };
-                    listEl.appendChild(item);
-                });
-            }
+        // 【核心修改】在这里加上 await！
+        const friends = await window.getEPhoneChatList();
+        
+        const modal = document.getElementById('taobao-char-selector-modal');
+        const listEl = document.getElementById('taobao-char-selector-list');
+        listEl.innerHTML = '';
 
-            document.getElementById('cancel-char-selector-btn').onclick = () => {
-                hideModal('taobao-char-selector-modal');
-                resolve(null);
-            };
+        if (friends.length === 0) {
+            listEl.innerHTML = '<p style="text-align:center; padding: 30px; color: #888;">你的好友列表是空的哦~</p>';
+        } else {
+            friends.forEach(friend => {
+                const item = document.createElement('div');
+                item.className = 'char-selector-item';
+                // 使用 friend.settings.aiAvatar 来获取头像
+                item.innerHTML = `<img src="${friend.settings.aiAvatar || ''}" class="avatar"><span class="name">${friend.name}</span>`;
+                item.onclick = () => {
+                    hideModal('taobao-char-selector-modal');
+                    resolve(friend.id); 
+                };
+                listEl.appendChild(item);
+            });
+        }
 
-            showModal('taobao-char-selector-modal');
-        });
-    }
+        document.getElementById('cancel-char-selector-btn').onclick = () => {
+            hideModal('taobao-char-selector-modal');
+            resolve(null);
+        };
+
+        showModal('taobao-char-selector-modal');
+    });
+}
+// ▲▲▲ 替换结束 ▲▲▲
 
     /**
      * 【全新】处理“分享给Ta代付”的全部逻辑
