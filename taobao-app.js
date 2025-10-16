@@ -1871,6 +1871,57 @@ async function handleBuyForChar() {
     document.getElementById('taobao-app-container').classList.remove('active');
 }
 // ▲▲▲ 替换结束 ▲▲▲
+
+// ▼▼▼ 【请将这个【缺失的】函数】粘贴到 handleBuyForChar 函数的旁边 ▼▼▼
+/**
+ * 【全新】处理“分享给Ta代付”的全部逻辑
+ */
+async function handleShareCartRequest() {
+    // 1. 检查与 EPhone 系统的连接
+    if (typeof window.sendSystemMessageToChat !== 'function') {
+        return alert("错误: 无法连接到EPhone系统来发送消息。");
+    }
+    
+    // 2. 检查购物车是否为空
+    const cartItems = await db.taobaoCart.toArray();
+    if (cartItems.length === 0) {
+        return alert("购物车是空的，先去加点宝贝吧！");
+    }
+
+    // 3. 弹出好友选择器，等待用户选择
+    const targetChatId = await showCharSelector();
+    if (!targetChatId) return; // 用户取消选择，则中断流程
+
+    // 4. 计算购物车总价
+    let totalPrice = 0;
+    const products = await Promise.all(cartItems.map(item => db.taobaoProducts.get(item.productId)));
+    products.forEach((product, index) => {
+        if (product) {
+            totalPrice += product.price * cartItems[index].quantity;
+        }
+    });
+
+    // 5. 构造对用户可见的“卡片消息”
+    const visibleMessage = {
+        type: 'cart_share_request', // EPhone会识别这个类型来渲染卡片
+        payload: {
+            senderName: '我', // 在对方看来，发送者是'我'
+            totalPrice: totalPrice,
+            itemCount: cartItems.length,
+        }
+    };
+
+    // 6. 构造给AI看的、隐藏的“系统指令”
+    const hiddenPrompt = `[系统指令：用户向你发送了一个购物车代付请求，总金额为 ${totalPrice.toFixed(2)} 元。请根据你的人设，决定是为TA支付还是拒绝，并作出回应。]`;
+    
+    // 7. 调用EPhone的全局API发送消息
+    await window.sendSystemMessageToChat(targetChatId, visibleMessage, hiddenPrompt);
+
+    // 8. 给用户反馈，并关闭桃宝App
+    await window.showEPhoneAlert("发送成功", "你的代付请求已发送，请到聊天中查看对方的回应吧！");
+    document.getElementById('taobao-app-container').classList.remove('active');
+}
+// ▲▲▲ 粘贴结束 ▲▲▲
     // ============================================
     // 第四部分: 初始化和事件绑定 (已更新)
     // ============================================
