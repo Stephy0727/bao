@@ -1776,15 +1776,22 @@ function switchTaobaoView(viewId) {
  * 【全新】显示好友选择器, 并返回一个Promise
  * @returns {Promise<string|null>} 用户选择的好友chatId, 或在取消时返回null
  */
+// ▼▼▼ 【请用这个新版本】替换旧的 showCharSelector 函数 ▼▼▼
 function showCharSelector() {
-    return new Promise(async (resolve) => { // 这里的 async 是必须的
+    return new Promise(async (resolve) => {
         if (typeof window.getEPhoneChatList !== 'function') {
             alert("错误: 无法连接到EPhone系统来获取好友列表。");
             return resolve(null);
         }
 
-        // 【核心修改】在这里加上 await！
         const friends = await window.getEPhoneChatList();
+        
+        // 【核心修复】增加一个安全检查，确保 friends 是一个数组
+        if (!Array.isArray(friends)) {
+            console.error("getEPhoneChatList 返回的不是一个数组!", friends);
+            alert("加载好友列表失败，请稍后重试。");
+            return resolve(null);
+        }
         
         const modal = document.getElementById('taobao-char-selector-modal');
         const listEl = document.getElementById('taobao-char-selector-list');
@@ -1796,7 +1803,6 @@ function showCharSelector() {
             friends.forEach(friend => {
                 const item = document.createElement('div');
                 item.className = 'char-selector-item';
-                // 使用 friend.settings.aiAvatar 来获取头像
                 item.innerHTML = `<img src="${friend.settings.aiAvatar || ''}" class="avatar"><span class="name">${friend.name}</span>`;
                 item.onclick = () => {
                     hideModal('taobao-char-selector-modal');
@@ -1816,83 +1822,55 @@ function showCharSelector() {
 }
 // ▲▲▲ 替换结束 ▲▲▲
 
-    /**
-     * 【全新】处理“分享给Ta代付”的全部逻辑
-     */
-    async function handleShareCartRequest() {
-        if (typeof window.sendSystemMessageToChat !== 'function') {
-            return alert("错误: 无法连接到EPhone系统来发送消息。");
-        }
-        
-        const cartItems = await db.taobaoCart.toArray();
-        if (cartItems.length === 0) return alert("购物车是空的，先去加点宝贝吧！");
-
-        const targetChatId = await showCharSelector();
-        if (!targetChatId) return; // 用户取消选择
-
-        let totalPrice = 0;
-        const products = await Promise.all(cartItems.map(item => db.taobaoProducts.get(item.productId)));
-        products.forEach((product, index) => {
-            if (product) totalPrice += product.price * cartItems[index].quantity;
-        });
-
-        const visibleMessage = {
-            type: 'cart_share_request',
-            payload: { senderName: '我', totalPrice: totalPrice, itemCount: cartItems.length }
-        };
-        const hiddenPrompt = `[系统指令：用户向你发送了一个购物车代付请求，总金额为 ${totalPrice.toFixed(2)} 元。请根据你的人设，决定是为TA支付还是拒绝，并作出回应。]`;
-        
-        await window.sendSystemMessageToChat(targetChatId, visibleMessage, hiddenPrompt);
-        await window.showEPhoneAlert("发送成功", "你的代付请求已发送，请到聊天中查看对方的回应吧！");
-        
-        document.getElementById('taobao-app-container').classList.remove('active');
+    // ▼▼▼ 【请用这个新版本】替换旧的 handleBuyForChar 函数 ▼▼▼
+async function handleBuyForChar() {
+    if (typeof window.sendSystemMessageToChat !== 'function' || typeof window.getEPhoneChatList !== 'function') {
+        return alert("错误: 无法连接到EPhone系统。");
     }
 
-    /**
-     * 【全新】处理“为Ta购买”（送礼）的全部逻辑
-     */
-    async function handleBuyForChar() {
-        if (typeof window.sendSystemMessageToChat !== 'function') return alert("错误: 无法连接到EPhone系统来发送消息。");
+    const cartItems = await db.taobaoCart.toArray();
+    if (cartItems.length === 0) return alert("购物车是空的，先去为TA挑选一些礼物吧！");
 
-        const cartItems = await db.taobaoCart.toArray();
-        if (cartItems.length === 0) return alert("购物车是空的，先去为TA挑选一些礼物吧！");
+    const targetChatId = await showCharSelector();
+    if (!targetChatId) return;
 
-        const targetChatId = await showCharSelector();
-        if (!targetChatId) return;
+    let totalPrice = 0;
+    const products = await Promise.all(cartItems.map(item => db.taobaoProducts.get(item.productId)));
+    products.forEach((product, index) => {
+        if (product) totalPrice += product.price * cartItems[index].quantity;
+    });
 
-        let totalPrice = 0;
-        const products = await Promise.all(cartItems.map(item => db.taobaoProducts.get(item.productId)));
-        products.forEach((product, index) => {
-            if (product) totalPrice += product.price * cartItems[index].quantity;
-        });
-
-        if (state.userBalance < totalPrice) {
-            return alert(`余额不足！本次需要 ¥${totalPrice.toFixed(2)}，但你的余额只有 ¥${state.userBalance.toFixed(2)}。`);
-        }
-        
-        const targetChar = window.getEPhoneChatList().find(c => c.id === targetChatId);
-        const targetCharName = targetChar ? targetChar.name : 'Ta';
-        const confirmed = confirm(`确认赠送\n\n确定要花费 ¥${totalPrice.toFixed(2)} 为“${targetCharName}”购买购物车中的所有商品吗？`);
-        if (!confirmed) return;
-
-        await updateUserBalanceAndLogTransaction(-totalPrice, `为 ${targetCharName} 购买礼物`);
-        await createOrdersFromCart(cartItems);
-        
-        const itemSummary = products.map((p, i) => `${p.name} x${cartItems[i].quantity}`).join('、');
-        const visibleMessage = {
-            type: 'gift_notification',
-            payload: { senderName: '我', itemSummary: itemSummary, totalPrice: totalPrice, itemCount: cartItems.length }
-        };
-        const hiddenPrompt = `[系统指令：用户刚刚为你购买了${cartItems.length}件商品作为【礼物】，总价值为${totalPrice.toFixed(2)}元。商品包括：${itemSummary}。请根据你的人设对此表示感谢或作出其他反应。]`;
-        
-        await window.sendSystemMessageToChat(targetChatId, visibleMessage, hiddenPrompt);
-        
-        await db.taobaoCart.clear();
-        await renderTaobaoCart();
-
-        await window.showEPhoneAlert("赠送成功！", `你为“${targetCharName}”购买的礼物已下单，并已通过私信通知对方啦！`);
-        document.getElementById('taobao-app-container').classList.remove('active');
+    if (state.userBalance < totalPrice) {
+        return alert(`余额不足！本次需要 ¥${totalPrice.toFixed(2)}，但你的余额只有 ¥${state.userBalance.toFixed(2)}。`);
     }
+    
+    // 【核心修复】在这里加上 await！
+    const friends = await window.getEPhoneChatList();
+    const targetChar = friends.find(c => c.id === targetChatId);
+    
+    const targetCharName = targetChar ? targetChar.name : 'Ta';
+    const confirmed = confirm(`确认赠送\n\n确定要花费 ¥${totalPrice.toFixed(2)} 为“${targetCharName}”购买购物车中的所有商品吗？`);
+    if (!confirmed) return;
+
+    await updateUserBalanceAndLogTransaction(-totalPrice, `为 ${targetCharName} 购买礼物`);
+    await createOrdersFromCart(cartItems);
+    
+    const itemSummary = products.map((p, i) => `${p.name} x${cartItems[i].quantity}`).join('、');
+    const visibleMessage = {
+        type: 'gift_notification',
+        payload: { senderName: '我', itemSummary: itemSummary, totalPrice: totalPrice, itemCount: cartItems.length }
+    };
+    const hiddenPrompt = `[系统指令：用户刚刚为你购买了${cartItems.length}件商品作为【礼物】，总价值为${totalPrice.toFixed(2)}元。商品包括：${itemSummary}。请根据你的人设对此表示感谢或作出其他反应。]`;
+    
+    await window.sendSystemMessageToChat(targetChatId, visibleMessage, hiddenPrompt);
+    
+    await db.taobaoCart.clear();
+    await renderTaobaoCart();
+
+    await window.showEPhoneAlert("赠送成功！", `你为“${targetCharName}”购买的礼物已下单，并已通过私信通知对方啦！`);
+    document.getElementById('taobao-app-container').classList.remove('active');
+}
+// ▲▲▲ 替换结束 ▲▲▲
     // ============================================
     // 第四部分: 初始化和事件绑定 (已更新)
     // ============================================
