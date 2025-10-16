@@ -1041,13 +1041,12 @@ async function seedInitialData() {
     }
     // ▲▲▲ 新增结束 ▲▲▲
     
-    // ▼▼▼ 【核心修改2】简化视图切换函数，移除所有定时器逻辑 ▼▼▼
     function switchTaobaoView(viewId) {
         document.querySelectorAll('#taobao-app-container .taobao-view').forEach(v => v.classList.remove('active'));
         document.getElementById(viewId).classList.add('active');
         document.querySelectorAll('#taobao-app-container .taobao-tab').forEach(t => t.classList.toggle('active', t.dataset.view === viewId));
-
-        // 现在只负责调用一次渲染，不再管理定时器
+    
+        // 根据切换到的视图，执行对应的渲染/刷新操作
         if (viewId === 'orders-view') {
             renderTaobaoOrders();
         } else if (viewId === 'my-view') {
@@ -1055,10 +1054,10 @@ async function seedInitialData() {
         } else if (viewId === 'cart-view') {
             renderTaobaoCart();
         } else if (viewId === 'products-view') {
-            renderTaobaoProducts();
+            // 新增：每次切换到首页时，都重新渲染商品列表
+            renderTaobaoProducts(state.currentCategory);
         }
     }
-    // ▲▲▲ 修改结束 ▲▲▲
     /**
      * 更新用户余额显示
      */
@@ -1784,17 +1783,35 @@ async function seedInitialData() {
 
  
     
-    // 暴露一个启动器给外部的 showScreen 函数调用
-    window.showTaobaoAppScreen = function() {
-        const container = document.getElementById('taobao-app-container');
-        if (container) {
-            container.classList.add('active'); // 使用 classList.add('active') 来显示
-            updateUserBalanceDisplay();
-            renderTaobaoProducts();
-            updateCartBadge();
-            switchTaobaoView('products-view');
-        }
-    };
+    // 在函数外部（但在(function(window){...})内部）定义一个“哨兵”变量
+let isTaobaoAppInitialized = false; 
+
+window.showTaobaoAppScreen = async function() {
+    // 检查App是否已经初始化过
+    if (!isTaobaoAppInitialized) {
+        // 如果没有，则执行一次完整的初始化流程
+        // initTaobaoApp 内部已经包含了首次渲染，所以这里不多余操作
+        await initTaobaoApp(); 
+        
+        // 设置“哨兵”，确保这个if块内的代码只运行一次
+        isTaobaoAppInitialized = true; 
+    }
+
+    const container = document.getElementById('taobao-app-container');
+    if (container) {
+        // 每次调用都显示App容器
+        container.style.display = 'flex'; 
+        
+        // 确保每次打开时，都重置到首页视图
+        // 【重要】我们把 renderTaobaoProducts() 的调用移到 switchTaobaoView 内部去处理
+        // 这样逻辑更清晰，每次切换到首页都会刷新
+        switchTaobaoView('products-view'); 
+
+        // 刷新一些轻量级数据
+        updateCartBadge();
+        updateUserBalanceDisplay();
+    }
+};
 
      // ▼▼▼ 【核心修改5】在初始化函数中，启动全局后台处理器 ▼▼▼
      async function initTaobaoApp() {
@@ -1826,14 +1843,6 @@ async function seedInitialData() {
     }
     // ▲▲▲ 修改结束 ▲▲▲
     
-    // 自动初始化
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', initTaobaoApp);
-    } else {
-        initTaobaoApp();
-    }
-
-    window.taobaoAppInitialized = true;
-    console.log('📦 Taobao App 模块已加载 (showScreen 兼容模式)');
+    
 
 })(window);
