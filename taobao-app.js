@@ -906,7 +906,7 @@
         userBalance: 0.00,
         currentCategory: null,
         currentEditingProductId: null,
-        logisticsUpdateTimers: []，
+        logisticsUpdateTimers: [],
         orderUpdateInterval: null // 【核心新增1】用于存储订单列表的更新定时器
     };
 
@@ -1028,7 +1028,7 @@ async function seedInitialData() {
         const modal = document.getElementById(modalId);
         if (modal) modal.classList.remove('visible');
     }
-    
+
     // ▼▼▼ 【核心新增2】一个专门用来停止订单更新的辅助函数 ▼▼▼
     function stopOrderUpdates() {
         if (state.orderUpdateInterval) {
@@ -1038,9 +1038,7 @@ async function seedInitialData() {
         }
     }
     // ▲▲▲ 新增结束 ▲▲▲
-
     
-
     // ▼▼▼ 【核心修改3】改造视图切换函数，实现定时器的智能启停 ▼▼▼
     function switchTaobaoView(viewId) {
         // 任何视图切换前，都先停止订单更新，确保只有一个定时器在运行
@@ -1064,10 +1062,6 @@ async function seedInitialData() {
             renderTaobaoProducts();
         }
     }
-    // ▲▲▲ 修改结束 ▲▲▲
-    
-    // --- 数据渲染与更新 ---
-
     /**
      * 更新用户余额显示
      */
@@ -1824,7 +1818,6 @@ async function seedInitialData() {
         
         console.log('🚀 Taobao App 初始化完成 (最终版)');
     }
-    // ▲▲▲ 修改结束 ▲▲▲
     
     // 自动初始化
     if (document.readyState === 'loading') {
@@ -1837,4 +1830,3 @@ async function seedInitialData() {
     console.log('📦 Taobao App 模块已加载 (showScreen 兼容模式)');
 
 })(window);
-
