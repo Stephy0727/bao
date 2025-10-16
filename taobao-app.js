@@ -906,7 +906,7 @@
         userBalance: 0.00,
         currentCategory: null,
         currentEditingProductId: null,
-        logisticsUpdateTimers: []
+        logisticsUpdateTimers: []，
         orderUpdateInterval: null // 【核心新增1】用于存储订单列表的更新定时器
     };
 
@@ -1837,3 +1837,4 @@ async function seedInitialData() {
     console.log('📦 Taobao App 模块已加载 (showScreen 兼容模式)');
 
 })(window);
+
