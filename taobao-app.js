@@ -906,8 +906,7 @@
         userBalance: 0.00,
         currentCategory: null,
         currentEditingProductId: null,
-        logisticsUpdateTimers: [],
-        orderUpdateInterval: null // 【核心新增1】用于存储订单列表的更新定时器
+        logisticsProcessorInterval: null // 【核心修改1】全局唯一的后台处理器定时器
     };
 
     // ▼▼▼ 【新增】物流时间线模板，来自你的源代码 ▼▼▼
@@ -1039,21 +1038,15 @@ async function seedInitialData() {
     }
     // ▲▲▲ 新增结束 ▲▲▲
     
-    // ▼▼▼ 【核心修改3】改造视图切换函数，实现定时器的智能启停 ▼▼▼
+    // ▼▼▼ 【核心修改2】简化视图切换函数，移除所有定时器逻辑 ▼▼▼
     function switchTaobaoView(viewId) {
-        // 任何视图切换前，都先停止订单更新，确保只有一个定时器在运行
-        stopOrderUpdates();
-
         document.querySelectorAll('#taobao-app-container .taobao-view').forEach(v => v.classList.remove('active'));
         document.getElementById(viewId).classList.add('active');
         document.querySelectorAll('#taobao-app-container .taobao-tab').forEach(t => t.classList.toggle('active', t.dataset.view === viewId));
 
-        // 根据新视图决定下一步操作
+        // 现在只负责调用一次渲染，不再管理定时器
         if (viewId === 'orders-view') {
-            renderTaobaoOrders(); // 先立即渲染一次
-            // 然后启动定时器，每5秒刷新一次订单列表
-            state.orderUpdateInterval = setInterval(renderTaobaoOrders, 5000); 
-            console.log('订单列表实时更新已启动 (5秒/次)。');
+            renderTaobaoOrders();
         } else if (viewId === 'my-view') {
             renderBalanceDetails();
         } else if (viewId === 'cart-view') {
@@ -1062,6 +1055,7 @@ async function seedInitialData() {
             renderTaobaoProducts();
         }
     }
+    // ▲▲▲ 修改结束 ▲▲▲
     /**
      * 更新用户余额显示
      */
@@ -1170,6 +1164,64 @@ async function seedInitialData() {
         updateCartBadge();
     }
 
+    // ▼▼▼ 【核心新增3】全新的后台物流处理引擎 ▼▼▼
+    async function processAllOrdersLogistics() {
+        if (!db) return; // 确保数据库已初始化
+
+        const orders = await db.taobaoOrders.toArray();
+        let hasUpdates = false;
+
+        for (const order of orders) {
+            // 如果订单已签收，则跳过
+            if (order.status && order.status.includes('签收')) {
+                continue;
+            }
+
+            const elapsedTime = Date.now() - order.timestamp;
+            let cumulativeDelay = 0;
+            let newHistory = order.logisticsHistory ? [...order.logisticsHistory] : [];
+            let newStatus = order.status;
+            
+            for (let i = 0; i < logisticsTimelineTemplate.length; i++) {
+                const stepTemplate = logisticsTimelineTemplate[i];
+                cumulativeDelay += stepTemplate.delay;
+
+                if (elapsedTime >= cumulativeDelay) {
+                    // 这个步骤应该已经发生
+                    if (!newHistory[i]) {
+                        // 如果历史记录中没有这一步，说明是新发生的
+                        const timestamp = order.timestamp + cumulativeDelay;
+                        // 为了演示，每次都用不同的城市
+                        const city = ['广州', '长沙', '武汉', '郑州', '北京', '上海'][Math.floor(Math.random() * 6)];
+                        const formattedText = stepTemplate.text.replace(/\{city\}|\{next_city\}|\{user_city\}/g, city);
+                        
+                        newHistory[i] = { text: formattedText, timestamp: timestamp };
+                        newStatus = formattedText.split('，')[0];
+                        hasUpdates = true;
+                    }
+                } else {
+                    // 后续步骤尚未发生，跳出循环
+                    break;
+                }
+            }
+
+            // 如果有更新，则一次性写入数据库
+            if (hasUpdates) {
+                await db.taobaoOrders.update(order.id, {
+                    status: newStatus,
+                    logisticsHistory: newHistory
+                });
+            }
+        }
+
+        // 如果有更新，并且用户正在看订单页，则主动刷新UI
+        const ordersView = document.getElementById('orders-view');
+        if (hasUpdates && ordersView && ordersView.classList.contains('active')) {
+            console.log('后台检测到订单更新，正在刷新列表...');
+            await renderTaobaoOrders();
+        }
+    }
+    // ▲▲▲ 新增结束 ▲▲▲
     async function renderTaobaoOrders() {
         const orderListEl = document.getElementById('order-list');
         orderListEl.innerHTML = '';
@@ -1539,15 +1591,11 @@ async function seedInitialData() {
      * 【总入口】打开物流详情页面
      */
     async function openLogisticsView(orderId) {
-        // 停止订单列表的轮询
-        stopOrderUpdates(); 
-
-        state.logisticsUpdateTimers.forEach(timerId => clearTimeout(timerId));
-        state.logisticsUpdateTimers = [];
+        // 不再需要停止任何定时器，因为后台只有一个全局的
         const order = await db.taobaoOrders.get(orderId);
         if (!order) { return alert('找不到该订单信息。'); }
         showTaobaoScreen('logistics-screen');
-        await renderLogisticsView(order);
+        await renderLogisticsView(order); // 直接渲染
     }
 
     async function renderLogisticsView(order) {
@@ -1561,7 +1609,7 @@ async function seedInitialData() {
                 <img src="${product.imageUrl}" class="product-image">
                 <div class="info">
                     <div class="name">${product.name}</div>
-                    <div class="status" id="main-logistics-status">计算中...</div>
+                    <div class="status" id="main-logistics-status">${order.status || '计算中...'}</div>
                 </div>
             </div>
             <div class="logistics-timeline"></div>
@@ -1570,61 +1618,19 @@ async function seedInitialData() {
         const timelineContainer = contentArea.querySelector('.logistics-timeline');
         const mainStatusEl = document.getElementById('main-logistics-status');
         timelineContainer.innerHTML = '';
-
-        const elapsedTime = Date.now() - order.timestamp;
-        let cumulativeDelay = 0;
-        let historyToSave = order.logisticsHistory ? [...order.logisticsHistory] : [];
-
-        // 模拟城市数据
-        const cities = ['广州', '长沙', '武汉', '郑州', '北京', '上海'];
-        const city = cities[Math.floor(Math.random() * cities.length)];
-        const next_city = cities[Math.floor(Math.random() * cities.length)];
-        const user_city = "你的城市";
-
-        for (let i = 0; i < logisticsTimelineTemplate.length; i++) {
-            const stepTemplate = logisticsTimelineTemplate[i];
-            cumulativeDelay += stepTemplate.delay;
-            
-            const stepTimestamp = order.timestamp + cumulativeDelay;
-            const formattedText = stepTemplate.text
-                .replace('{city}', city)
-                .replace('{next_city}', next_city)
-                .replace('{user_city}', user_city);
-
-            if (elapsedTime >= cumulativeDelay) {
-                // --- 已经发生的步骤 ---
-                // 瞬间渲染
-                addLogisticsStep(timelineContainer, mainStatusEl, formattedText, new Date(stepTimestamp));
-                // 如果历史记录里没有，就补上
-                if (!historyToSave[i]) {
-                    historyToSave[i] = { text: formattedText, timestamp: stepTimestamp };
-                }
-            } else {
-                // --- 尚未发生的步骤 ---
-                const remainingTime = cumulativeDelay - elapsedTime;
-                const timerId = setTimeout(async () => {
-                    const now = Date.now();
-                    // 1. 更新UI
-                    addLogisticsStep(timelineContainer, mainStatusEl, formattedText, new Date(now));
-                    // 2. 更新历史记录
-                    historyToSave[i] = { text: formattedText, timestamp: now };
-                    // 3. 保存回数据库
-                    await db.taobaoOrders.update(order.id, {
-                        status: formattedText.split('，')[0],
-                        logisticsHistory: historyToSave
-                    });
-                }, remainingTime);
-                state.logisticsUpdateTimers.push(timerId);
-            }
-        }
         
-        // 循环结束后，立即将所有已发生的、补全的历史记录更新到数据库
-        const finalStatus = mainStatusEl.textContent;
-        await db.taobaoOrders.update(order.id, {
-            status: finalStatus,
-            logisticsHistory: historyToSave
-        });
+        // 极其简单：直接从数据库读取历史并渲染
+        if (order.logisticsHistory && order.logisticsHistory.length > 0) {
+            order.logisticsHistory.forEach(step => {
+                addLogisticsStep(timelineContainer, mainStatusEl, step.text, new Date(step.timestamp));
+            });
+            // 确保顶部状态是最新的
+            mainStatusEl.textContent = order.logisticsHistory[order.logisticsHistory.length - 1].text.split('，')[0];
+        } else {
+            timelineContainer.innerHTML = '<p>暂无物流信息。</p>'
+        }
     }
+
 
     function addLogisticsStep(container, mainStatusEl, text, timestamp) {
         const stepEl = document.createElement('div');
@@ -1787,10 +1793,8 @@ async function seedInitialData() {
         }
     };
 
-    /**
-     * 主初始化函数
-     */
-    async function initTaobaoApp() {
+     // ▼▼▼ 【核心修改5】在初始化函数中，启动全局后台处理器 ▼▼▼
+     async function initTaobaoApp() {
         injectTaobaoStyles();
         createTaobaoHTML();
         setupDatabase();
@@ -1803,12 +1807,7 @@ async function seedInitialData() {
 
         const mainBackButton = document.getElementById('taobao-main-back-btn');
         if(mainBackButton) {
-            mainBackButton.onclick = () => {
-                // 退出App时，也要停止所有更新
-                stopOrderUpdates(); 
-                state.logisticsUpdateTimers.forEach(timerId => clearTimeout(timerId));
-                window.showScreen('home-screen');
-            };
+            mainBackButton.onclick = () => window.showScreen('home-screen');
         }
         
         await seedInitialData(); 
@@ -1816,8 +1815,13 @@ async function seedInitialData() {
         await renderTaobaoProducts();
         await updateCartBadge();
         
-        console.log('🚀 Taobao App 初始化完成 (最终版)');
+        // 启动全局后台处理器，每2秒检查一次
+        if (state.logisticsProcessorInterval) clearInterval(state.logisticsProcessorInterval);
+        state.logisticsProcessorInterval = setInterval(processAllOrdersLogistics, 2000);
+
+        console.log('🚀 Taobao App 初始化完成，后台物流处理器已启动。');
     }
+    // ▲▲▲ 修改结束 ▲▲▲
     
     // 自动初始化
     if (document.readyState === 'loading') {
