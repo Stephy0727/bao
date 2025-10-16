@@ -1304,6 +1304,99 @@ function switchTaobaoView(viewId) {
     // --- 核心业务逻辑函数 ---
 
     /**
+     * 【全新】打开商品详情弹窗
+     */
+    async function openProductDetail(productId) {
+        const product = await db.taobaoProducts.get(productId);
+        if (!product) {
+            console.error("找不到ID为 " + productId + " 的商品");
+            return;
+        }
+
+        // 获取弹窗的所有相关元素
+        const modal = document.getElementById('product-detail-modal');
+        const bodyEl = document.getElementById('product-detail-body');
+        const reviewsListEl = document.getElementById('product-reviews-list');
+        const generateBtn = document.getElementById('generate-reviews-btn');
+        const addToCartBtn = document.getElementById('detail-add-to-cart-btn');
+
+        // 1. 填充商品基本信息
+        bodyEl.innerHTML = `
+            <img src="${product.imageUrl}" class="product-image" alt="${product.name}">
+            <h2 class="product-name">${product.name}</h2>
+            <div class="product-price">¥${product.price.toFixed(2)}</div>
+        `;
+
+        // 2. 渲染评价区域
+        reviewsListEl.innerHTML = ''; // 先清空
+        if (product.reviews && product.reviews.length > 0) {
+            product.reviews.forEach(review => {
+                const reviewEl = document.createElement('div');
+                reviewEl.className = 'product-review-item';
+                reviewEl.innerHTML = `
+                    <div class="review-author">${review.author}</div>
+                    <p>${review.text}</p>
+                `;
+                reviewsListEl.appendChild(reviewEl);
+            });
+            generateBtn.style.display = 'none'; // 有评价了就隐藏生成按钮
+        } else {
+            reviewsListEl.innerHTML = '<p style="text-align: center; color: #888; font-size: 13px;">还没有人评价哦~</p>';
+            generateBtn.style.display = 'block'; // 没有评价就显示生成按钮
+        }
+
+        // 3. 【关键】为弹窗内的按钮重新绑定事件，防止事件残留
+        // 使用 cloneNode 技巧可以干净地移除所有旧的事件监听器
+        const newGenerateBtn = generateBtn.cloneNode(true);
+        generateBtn.parentNode.replaceChild(newGenerateBtn, generateBtn);
+        newGenerateBtn.onclick = () => generateProductReviews(productId);
+
+        const newAddToCartBtn = addToCartBtn.cloneNode(true);
+        addToCartBtn.parentNode.replaceChild(newAddToCartBtn, addToCartBtn);
+        newAddToCartBtn.onclick = () => {
+            handleAddToCart(productId);
+            hideModal('product-detail-modal');
+            // 可以加一个小的成功提示
+            const tempAlert = document.createElement('div');
+            tempAlert.textContent = '已加入购物车';
+            tempAlert.style.cssText = 'position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); background:rgba(0,0,0,0.7); color:white; padding:10px 20px; border-radius:8px; z-index:10001;';
+            document.body.appendChild(tempAlert);
+            setTimeout(() => tempAlert.remove(), 1000);
+        };
+        
+        // 4. 显示弹窗
+        showModal('product-detail-modal');
+    }
+
+    /**
+     * 【全新】AI核心：为指定商品生成评价 (模拟)
+     */
+    async function generateProductReviews(productId) {
+        const generateBtn = document.getElementById('generate-reviews-btn');
+        generateBtn.textContent = 'AI正在生成...';
+        generateBtn.disabled = true;
+        
+        // 模拟AI思考
+        await new Promise(resolve => setTimeout(resolve, 1500));
+
+        const fakeReviews = [
+            { author: "匿名用户A", text: "质量真的很好，完全超出期望值，发货速度非常快，包装非常仔细、严实，很满意的一次购物！" },
+            { author: "买家秀B", text: "宝贝收到了，和描述一样，很喜欢，物流也快，性价比很高，值得购买。" },
+            { author: "回头客C", text: "一般般吧，没有想象中那么好，习惯性好评。" }
+        ];
+
+        // 将生成的评价存入数据库
+        await db.taobaoProducts.update(productId, { reviews: fakeReviews });
+
+        generateBtn.textContent = '✨ AI生成评价';
+        generateBtn.disabled = false;
+        
+        // 【重要】重新渲染弹窗，以显示刚刚生成的评价
+        await openProductDetail(productId);
+    }
+
+// ▲▲▲ 粘贴到这里结束 ▲▲▲
+    /**
      * 更新余额并记录交易
      */
     async function updateUserBalanceAndLogTransaction(amount, description) {
@@ -1736,10 +1829,15 @@ function switchTaobaoView(viewId) {
                 handleAddToCart(productId);
             }
             
-            const productCard = target.closest('.product-card');
-            if (productCard && !addCartBtn && !productCard.closest('#ai-product-results-grid')) {
-                alert("商品详情待实现");
-            }
+            // ▼▼▼ 这是【修改后】的正确代码块 ▼▼▼
+const productCard = target.closest('.product-card');
+// 确保点击的不是“+”按钮，也不是AI结果弹窗里的卡片
+if (productCard && !addCartBtn && !productCard.closest('#ai-product-results-grid')) {
+    const productId = parseInt(productCard.dataset.productId);
+    if (!isNaN(productId)) {
+        openProductDetail(productId); // 调用我们新写的函数
+    }
+}
             
             // --- 购物车 ---
             const increaseBtn = target.closest('.quantity-increase');
