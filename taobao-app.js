@@ -737,6 +737,15 @@
             .form-group textarea {
                 resize: vertical;
             }
+        /* ▼▼▼ 【全新】这是好友选择器弹窗的CSS ▼▼▼ */
+            #taobao-char-selector-modal .modal-content { height: 70%; }
+            #taobao-char-selector-modal .modal-body { padding: 0; }
+            .char-selector-list { height: 100%; overflow-y: auto; }
+            .char-selector-item { display: flex; align-items: center; padding: 10px 15px; cursor: pointer; border-bottom: 1px solid #eee; }
+            .char-selector-item:hover { background-color: #f5f5f5; }
+            .char-selector-item .avatar { width: 40px; height: 40px; border-radius: 50%; margin-right: 12px; object-fit: cover; }
+            .char-selector-item .name { font-weight: 500; }
+            /* ▲▲▲ 新CSS粘贴结束 ▲▲▲ */
         `;
         document.head.appendChild(style);
         console.log('✅ Taobao App: 样式已注入');
@@ -892,6 +901,15 @@
                     <div class="modal-footer"><button class="save" id="close-ai-products-modal-btn" style="width: 100%;">完成</button></div>
                 </div>
             </div>
+        <!-- ▼▼▼ 【全新】这是好友选择器弹窗的HTML ▼▼▼ -->
+            <div id="taobao-char-selector-modal" class="modal">
+                <div class="modal-content">
+                    <div class="modal-header"><span>选择一个好友</span></div>
+                    <div class="modal-body"><div id="taobao-char-selector-list" class="char-selector-list"></div></div>
+                    <div class="modal-footer"><button class="cancel" id="cancel-char-selector-btn">取消</button></div>
+                </div>
+            </div>
+            <!-- ▲▲▲ 新HTML粘贴结束 ▲▲▲ -->
         `;
         document.body.appendChild(container);
         console.log('✅ Taobao App: HTML结构已创建');
@@ -1754,9 +1772,6 @@ function switchTaobaoView(viewId) {
         mainStatusEl.textContent = text.split('，')[0];
     }
 
-    /**
-     * 在时间轴上添加一个物流步骤 (保持不变，但现在是纯UI操作)
-     */
     function addLogisticsStep(container, mainStatusEl, text, timestamp) {
         container.querySelectorAll('.logistics-step').forEach(el => el.classList.remove('active'));
         const stepEl = document.createElement('div');
@@ -1771,7 +1786,124 @@ function switchTaobaoView(viewId) {
         container.prepend(stepEl);
         mainStatusEl.textContent = text.split('，')[0];
     }
-    // ▲▲▲ 修改结束 ▲▲▲
+
+    /**
+     * 【全新】显示好友选择器, 并返回一个Promise
+     * @returns {Promise<string|null>} 用户选择的好友chatId, 或在取消时返回null
+     */
+    function showCharSelector() {
+        return new Promise(async (resolve) => {
+            if (typeof window.getEPhoneChatList !== 'function') {
+                alert("错误: 无法连接到EPhone系统来获取好友列表。");
+                return resolve(null);
+            }
+
+            const friends = window.getEPhoneChatList();
+            const modal = document.getElementById('taobao-char-selector-modal');
+            const listEl = document.getElementById('taobao-char-selector-list');
+            listEl.innerHTML = '';
+
+            if (friends.length === 0) {
+                listEl.innerHTML = '<p style="text-align:center; padding: 30px; color: #888;">你的好友列表是空的哦~</p>';
+            } else {
+                friends.forEach(friend => {
+                    const item = document.createElement('div');
+                    item.className = 'char-selector-item';
+                    item.innerHTML = `<img src="${friend.settings.aiAvatar || ''}" class="avatar"><span class="name">${friend.name}</span>`;
+                    item.onclick = () => {
+                        hideModal('taobao-char-selector-modal');
+                        resolve(friend.id); 
+                    };
+                    listEl.appendChild(item);
+                });
+            }
+
+            document.getElementById('cancel-char-selector-btn').onclick = () => {
+                hideModal('taobao-char-selector-modal');
+                resolve(null);
+            };
+
+            showModal('taobao-char-selector-modal');
+        });
+    }
+
+    /**
+     * 【全新】处理“分享给Ta代付”的全部逻辑
+     */
+    async function handleShareCartRequest() {
+        if (typeof window.sendSystemMessageToChat !== 'function') {
+            return alert("错误: 无法连接到EPhone系统来发送消息。");
+        }
+        
+        const cartItems = await db.taobaoCart.toArray();
+        if (cartItems.length === 0) return alert("购物车是空的，先去加点宝贝吧！");
+
+        const targetChatId = await showCharSelector();
+        if (!targetChatId) return; // 用户取消选择
+
+        let totalPrice = 0;
+        const products = await Promise.all(cartItems.map(item => db.taobaoProducts.get(item.productId)));
+        products.forEach((product, index) => {
+            if (product) totalPrice += product.price * cartItems[index].quantity;
+        });
+
+        const visibleMessage = {
+            type: 'cart_share_request',
+            payload: { senderName: '我', totalPrice: totalPrice, itemCount: cartItems.length }
+        };
+        const hiddenPrompt = `[系统指令：用户向你发送了一个购物车代付请求，总金额为 ${totalPrice.toFixed(2)} 元。请根据你的人设，决定是为TA支付还是拒绝，并作出回应。]`;
+        
+        await window.sendSystemMessageToChat(targetChatId, visibleMessage, hiddenPrompt);
+        await window.showEPhoneAlert("发送成功", "你的代付请求已发送，请到聊天中查看对方的回应吧！");
+        
+        document.getElementById('taobao-app-container').classList.remove('active');
+    }
+
+    /**
+     * 【全新】处理“为Ta购买”（送礼）的全部逻辑
+     */
+    async function handleBuyForChar() {
+        if (typeof window.sendSystemMessageToChat !== 'function') return alert("错误: 无法连接到EPhone系统来发送消息。");
+
+        const cartItems = await db.taobaoCart.toArray();
+        if (cartItems.length === 0) return alert("购物车是空的，先去为TA挑选一些礼物吧！");
+
+        const targetChatId = await showCharSelector();
+        if (!targetChatId) return;
+
+        let totalPrice = 0;
+        const products = await Promise.all(cartItems.map(item => db.taobaoProducts.get(item.productId)));
+        products.forEach((product, index) => {
+            if (product) totalPrice += product.price * cartItems[index].quantity;
+        });
+
+        if (state.userBalance < totalPrice) {
+            return alert(`余额不足！本次需要 ¥${totalPrice.toFixed(2)}，但你的余额只有 ¥${state.userBalance.toFixed(2)}。`);
+        }
+        
+        const targetChar = window.getEPhoneChatList().find(c => c.id === targetChatId);
+        const targetCharName = targetChar ? targetChar.name : 'Ta';
+        const confirmed = confirm(`确认赠送\n\n确定要花费 ¥${totalPrice.toFixed(2)} 为“${targetCharName}”购买购物车中的所有商品吗？`);
+        if (!confirmed) return;
+
+        await updateUserBalanceAndLogTransaction(-totalPrice, `为 ${targetCharName} 购买礼物`);
+        await createOrdersFromCart(cartItems);
+        
+        const itemSummary = products.map((p, i) => `${p.name} x${cartItems[i].quantity}`).join('、');
+        const visibleMessage = {
+            type: 'gift_notification',
+            payload: { senderName: '我', itemSummary: itemSummary, totalPrice: totalPrice, itemCount: cartItems.length }
+        };
+        const hiddenPrompt = `[系统指令：用户刚刚为你购买了${cartItems.length}件商品作为【礼物】，总价值为${totalPrice.toFixed(2)}元。商品包括：${itemSummary}。请根据你的人设对此表示感谢或作出其他反应。]`;
+        
+        await window.sendSystemMessageToChat(targetChatId, visibleMessage, hiddenPrompt);
+        
+        await db.taobaoCart.clear();
+        await renderTaobaoCart();
+
+        await window.showEPhoneAlert("赠送成功！", `你为“${targetCharName}”购买的礼物已下单，并已通过私信通知对方啦！`);
+        document.getElementById('taobao-app-container').classList.remove('active');
+    }
     // ============================================
     // 第四部分: 初始化和事件绑定 (已更新)
     // ============================================
