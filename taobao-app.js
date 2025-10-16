@@ -1041,24 +1041,36 @@ async function seedInitialData() {
     }
     // ▲▲▲ 新增结束 ▲▲▲
     
-    // ▼▼▼ 【核心修改2】简化视图切换函数，移除所有定时器逻辑 ▼▼▼
-    function switchTaobaoView(viewId) {
-        document.querySelectorAll('#taobao-app-container .taobao-view').forEach(v => v.classList.remove('active'));
-        document.getElementById(viewId).classList.add('active');
-        document.querySelectorAll('#taobao-app-container .taobao-tab').forEach(t => t.classList.toggle('active', t.dataset.view === viewId));
-
-        // 现在只负责调用一次渲染，不再管理定时器
-        if (viewId === 'orders-view') {
-            renderTaobaoOrders();
-        } else if (viewId === 'my-view') {
-            renderBalanceDetails();
-        } else if (viewId === 'cart-view') {
-            renderTaobaoCart();
-        } else if (viewId === 'products-view') {
-            renderTaobaoProducts();
-        }
+    // ▼▼▼ 这是【修改后】的正确代码 ▼▼▼
+function switchTaobaoView(viewId) {
+    const activeView = document.querySelector('#taobao-app-container .taobao-view.active');
+    
+    // 【核心修复】如果当前显示的视图已经是目标视图，则直接返回，不执行任何操作。
+    if (activeView && activeView.id === viewId) {
+        console.log(`视图已经是 ${viewId}，无需切换。`);
+        return; 
     }
-    // ▲▲▲ 修改结束 ▲▲▲
+
+    // --- 以下是原有的切换逻辑 ---
+    document.querySelectorAll('#taobao-app-container .taobao-view').forEach(v => v.classList.remove('active'));
+    const targetView = document.getElementById(viewId);
+    if (targetView) targetView.classList.add('active');
+    
+    document.querySelectorAll('#taobao-app-container .taobao-tab').forEach(t => {
+        t.classList.toggle('active', t.dataset.view === viewId);
+    });
+
+    // --- 以下是原有的渲染逻辑 ---
+    if (viewId === 'orders-view') {
+        renderTaobaoOrders();
+    } else if (viewId === 'my-view') {
+        renderBalanceDetails();
+    } else if (viewId === 'cart-view') {
+        renderTaobaoCart();
+    } else if (viewId === 'products-view') {
+        renderTaobaoProducts();
+    }
+}
     /**
      * 更新用户余额显示
      */
@@ -1785,16 +1797,17 @@ async function seedInitialData() {
  
     
     // 暴露一个启动器给外部的 showScreen 函数调用
-    window.showTaobaoAppScreen = function() {
-        const container = document.getElementById('taobao-app-container');
-        if (container) {
-            container.classList.add('active'); // 使用 classList.add('active') 来显示
-            updateUserBalanceDisplay();
-            renderTaobaoProducts();
-            updateCartBadge();
-            switchTaobaoView('products-view');
-        }
-    };
+    // ▼▼▼ 这是【修改后】的正确代码 ▼▼▼
+window.showTaobaoAppScreen = function() {
+    const container = document.getElementById('taobao-app-container');
+    if (container) {
+        container.classList.add('active'); // 使用 classList.add('active') 来显示
+        updateUserBalanceDisplay();
+        // renderTaobaoProducts(); // 这一行已经被删掉或注释掉了
+        updateCartBadge();
+        switchTaobaoView('products-view'); // 只保留这一句，它会负责渲染首页
+    }
+};
 
      // ▼▼▼ 【核心修改5】在初始化函数中，启动全局后台处理器 ▼▼▼
      async function initTaobaoApp() {
